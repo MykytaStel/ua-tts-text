@@ -2,6 +2,7 @@
  * Публічний API: підготувати український текст до озвучки одним викликом.
  */
 
+import type { ContextSource } from './context.js';
 import type { StressDictionary } from './dict.js';
 import type { StressSource } from './lexicon.js';
 import { normalize, type NormalizeOptions } from './normalize.js';
@@ -11,6 +12,7 @@ import { resolveHomographs, resolveUnknown, type Asker } from './resolve.js';
 import type { Decisions } from './agent.js';
 import type { StressOptions } from './stress.js';
 
+export * from './context.js';
 export * from './dict.js';
 export * from './lexicon.js';
 export * from './numbers.js';
@@ -29,6 +31,8 @@ export interface PrepareOptions {
   dictionary?: StressDictionary;
   /** Лексикон власних назв — пріоритетніший за словник. */
   lexicon?: StressSource;
+  /** Контекстні правила для омонімів — спрацьовують раніше за лексикон і словник. */
+  context?: ContextSource;
   normalize?: NormalizeOptions;
   stress?: StressOptions;
 }
@@ -44,6 +48,8 @@ export interface PrepareResult {
   marked: number;
   /** Скільки слів наголошено морфологічним фолбеком, а не словником. */
   inferred: number;
+  /** Скільки омонімів розв'язано контекстним правилом. */
+  contextual: number;
 }
 
 export interface PrepareManyOptions extends PrepareOptions {
@@ -110,16 +116,27 @@ export async function prepareMany(
   return { results, decisions, overrides, missing, promptLength };
 }
 
+/** Правила, що мовчать для слів із явним рішенням — так само, як у `stressify`. */
+function withoutDecided(context: ContextSource, decided: Readonly<Record<string, 0 | 1>>): ContextSource {
+  return { resolve: (word, view) => (decided[word] === undefined ? context.resolve(word, view) : null) };
+}
+
 /** Нормалізація + наголоси під рушій. */
 export function prepare(input: string, options: PrepareOptions = {}): PrepareResult {
   const normalized = normalize(input, options.normalize);
 
   if (!options.dictionary) {
-    return { text: normalized, engine: null, warnings: [], ambiguous: [], unknown: [], homographs: [], marked: 0, inferred: 0 };
+    return { text: normalized, engine: null, warnings: [], ambiguous: [], unknown: [], homographs: [], marked: 0, inferred: 0, contextual: 0 };
   }
 
   const engine = options.engine ?? 'plain';
-  const stressOptions: StressOptions = { ...options.stress, ...(options.lexicon ? { lexicon: options.lexicon } : {}) };
+  const context = options.context ?? options.stress?.context;
+  const decided = options.stress?.decisions ?? {};
+  const stressOptions: StressOptions = {
+    ...options.stress,
+    ...(options.lexicon ? { lexicon: options.lexicon } : {}),
+    ...(context ? { context } : {}),
+  };
   const result: RenderResult = render(normalized, engine, options.dictionary, stressOptions);
 
   return {
@@ -128,8 +145,10 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
     warnings: result.warnings,
     ambiguous: result.ambiguous,
     unknown: result.unknown,
-    homographs: homographs(normalized, options.dictionary, 'acute', options.lexicon),
+    // Явне рішення сильніше за правило, тож слово з рішенням лишається у списку для звіту.
+    homographs: homographs(normalized, options.dictionary, 'acute', options.lexicon, context && withoutDecided(context, decided)),
     marked: result.marked,
     inferred: result.inferred,
+    contextual: result.contextual,
   };
 }

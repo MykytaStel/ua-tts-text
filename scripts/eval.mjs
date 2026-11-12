@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Lexicon, StressDictionary, normalize, prepare } from '../dist/index.js';
+import { ContextRules, Lexicon, StressDictionary, normalize, prepare } from '../dist/index.js';
 
 const ACUTE = '\u0301';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +24,9 @@ const lexicon = Lexicon.loadAll([
   path.join(root, 'lexicon', 'common.tsv'),
   path.join(root, 'lexicon', 'names.tsv'),
 ]);
+
+// --no-context показує базу без контекстних правил.
+const context = process.argv.includes('--no-context') ? undefined : ContextRules.loadTsv(path.join(root, 'lexicon', 'context.tsv'));
 
 const WORD_RE = /[\p{L}][\p{L}\u2019\u02bc'\u0301+\-]*/gu;
 
@@ -64,7 +67,7 @@ let fn = 0;
 for (const row of rows) {
   const golden = indexWords(row.text);
   const source = row.text.replace(/[\u0301\u00b4]/gu, '');
-  const prepared = prepare(source, { dictionary: dict, lexicon, engine: 'piper-medium' });
+  const prepared = prepare(source, { dictionary: dict, lexicon, ...(context ? { context } : {}), engine: 'piper-medium' });
   const produced = indexWords(prepared.text);
 
   let rowTp = 0;

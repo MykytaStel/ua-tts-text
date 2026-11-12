@@ -6,6 +6,7 @@
 import { normalizeWord, type StressDictionary } from './dict.js';
 import { markWord, type StressSymbol } from './stress.js';
 import type { StressSource } from './lexicon.js';
+import { contextViews, type ContextSource } from './context.js';
 
 export type IssueKind = 'digits' | 'brackets' | 'abbreviation' | 'latin' | 'spacing';
 
@@ -77,14 +78,20 @@ export function homographs(
   dictionary: StressDictionary,
   symbol: StressSymbol = 'acute',
   lexicon?: StressSource,
+  /** Омоніми, які розв'язало контекстне правило, у список не потрапляють. */
+  context?: ContextSource,
 ): Homograph[] {
   const seen = new Set<string>();
   const result: Homograph[] = [];
+  const views = new Map<number, ReturnType<typeof contextViews>[number]['view']>();
+  if (context) for (const item of contextViews(text)) views.set(item.index, item.view);
   for (const match of text.matchAll(WORD_RE)) {
     const word = match[0];
     if (word.includes('+')) continue;
     const key = normalizeWord(word).replace(/-+$/u, '');
     if (key.length < 3 || seen.has(key)) continue;
+    const view = views.get(match.index);
+    if (context && view && context.resolve(key, view)) continue;
     const hit = lexicon?.lookup(key) ?? dictionary.lookup(key);
     if (!hit || hit.alternative === null || hit.dual) continue;
     seen.add(key);

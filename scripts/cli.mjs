@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Lexicon, StressDictionary, createOpenAiAsker, lint, prepare, prepareMany } from '../dist/index.js';
+import { Lexicon, StressDictionary, createOpenAiAsker, lint, prepare, prepareMany, ContextRules } from '../dist/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -71,6 +71,10 @@ if (!existsSync(dictPath)) {
 const dictionary = StressDictionary.load(dictPath);
 // Загальні слова (де словник дає рідкісний варіант) + власні назви.
 const lexicon = Lexicon.loadAll([path.join(path.dirname(lexiconPath), 'common.tsv'), lexiconPath]);
+// Контекстні правила для омонімів лежать поруч із лексиконом; --no-context їх вимикає.
+const context = process.argv.includes('--no-context')
+  ? undefined
+  : ContextRules.loadAll([path.join(pkgRoot, 'lexicon', 'context.tsv'), path.join(path.dirname(lexiconPath), 'context.tsv')]);
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
 const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';
 if (useResolve && !apiKey) {
@@ -90,6 +94,7 @@ const base = {
   dictionary,
   engine,
   ...(lexicon ? { lexicon } : {}),
+  ...(context ? { context } : {}),
   stress: { decisions },
 };
 

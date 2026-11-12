@@ -4,6 +4,7 @@
  */
 
 import { normalizeWord, type StressDictionary } from './dict.js';
+import { contextViews, type ContextSource, type ContextView } from './context.js';
 import { stemOf } from './fallback.js';
 import type { StressSource } from './lexicon.js';
 
@@ -34,6 +35,11 @@ export interface StressOptions {
   overrides?: Readonly<Record<string, number>>;
   /** Переносити наголос зі спільного стема (увімкнено типово). */
   inferFromStem?: boolean;
+  /**
+   * Контекстні правила для омонімів («три ро́ки», «на горі́»). Мають пріоритет над
+   * лексиконом і словником, але поступаються явним `decisions` та `overrides`.
+   */
+  context?: ContextSource;
 }
 
 export interface StressResult {
@@ -46,6 +52,8 @@ export interface StressResult {
   marked: number;
   /** Скільки з них — за морфологічним фолбеком, а не зі словника. */
   inferred: number;
+  /** Скільки омонімів розв'язано контекстним правилом. */
+  contextual: number;
 }
 
 // «+» входить у слово, щоб ручний наголос не розривався на два токени.
@@ -86,12 +94,16 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     lexicon,
     overrides = {},
     inferFromStem = true,
+    context,
   } = options;
 
   const ambiguous = new Set<string>();
   const unknown = new Set<string>();
   let marked = 0;
   let inferred = 0;
+  let contextual = 0;
+  const views = new Map<number, ContextView>();
+  if (context) for (const item of contextViews(text)) views.set(item.index, item.view);
 
   /** Наголос однієї частини складного слова (для дефісних слів). */
   const resolvePart = (key: string): number[] | null => {
@@ -121,7 +133,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     return out.join('-');
   };
 
-  const result = text.replace(WORD_RE, (word) => {
+  const result = text.replace(WORD_RE, (word, offset: number) => {
     // Уже позначене вручну (словник вимови) не чіпаємо.
     if (word.includes('+')) return word;
     // Прозвучені по літерах абревіатури наголошувати не треба.
@@ -134,6 +146,17 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     if (override !== undefined && override >= 0) {
       marked += 1;
       return markWord(word, [override], symbol);
+    }
+
+    // Сусіднє слово розв'язує омонім раніше, ніж словник оголосить його неоднозначним.
+    if (context && decisions[normalized] === undefined && decisions[word] === undefined) {
+      const view = views.get(offset);
+      const positions = view ? context.resolve(normalized, view) : null;
+      if (positions) {
+        marked += 1;
+        contextual += 1;
+        return markWord(word, positions, symbol);
+      }
     }
 
     const hit = lexicon?.lookup(normalized) ?? dictionary.lookup(normalized);
@@ -197,7 +220,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
   });
 
   if (symbol === 'none') {
-    return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked: 0, inferred: 0 };
+    return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked: 0, inferred: 0, contextual: 0 };
   }
-  return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked, inferred };
+  return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked, inferred, contextual };
 }
