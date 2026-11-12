@@ -21,6 +21,23 @@
 | SKILL.md для агентів | ✅ `skills/ua-voiceover-prep/` |
 | Публікація (npm, skills.sh) | ⏳ |
 
+## Встановлення
+
+```bash
+git clone https://github.com/MykytaStel/ua-tts-text.git
+cd ua-tts-text
+pnpm install && pnpm build
+node scripts/fetch-dict.mjs   # 75 МБ словника, один раз
+```
+
+Пакет у npm поки не опублікований — після публікації буде `npm i ua-tts-text`.
+
+Скіл для агентів ставиться прямо з репозиторію:
+
+```bash
+npx skills add MykytaStel/ua-tts-text
+```
+
 ## Використання
 
 ```ts

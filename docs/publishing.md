@@ -7,7 +7,13 @@
 - Ліцензія MIT, `LICENSE` на місці.
 - Скіл лежить у `skills/ua-voiceover-prep/SKILL.md` (формат Agent Skills).
 
-## Крок 1. GitHub
+## Стан
+
+- [x] GitHub: https://github.com/MykytaStel/ua-tts-text (публічний, топіки додано)
+- [x] CI: тести зі словником і без нього
+- [ ] npm: потрібен `npm login`
+
+## Крок 1. GitHub (зроблено)
 
 ```bash
 gh repo create MykytaStel/ua-tts-text --public \
