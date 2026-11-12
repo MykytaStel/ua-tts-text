@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { describeDict, loadDictFixture } from './dict-fixture.js';
 import { applyDecisions, parseDecisions, reviewPrompt } from '../src/agent.js';
 import { StressDictionary } from '../src/dict.js';
 import { prepare } from '../src/index.js';
@@ -6,10 +7,10 @@ import { prepare } from '../src/index.js';
 let dict: StressDictionary;
 
 beforeAll(() => {
-  dict = StressDictionary.load(new URL('../data/dict.bin', import.meta.url).pathname);
+  dict = loadDictFixture();
 });
 
-describe('reviewPrompt', () => {
+describeDict('reviewPrompt', () => {
   it('містить контекст і обидва варіанти', () => {
     const result = prepare('Замок стоїть на горі.', { dictionary: dict });
     const prompt = reviewPrompt(result.homographs);
@@ -23,7 +24,7 @@ describe('reviewPrompt', () => {
   });
 });
 
-describe('parseDecisions', () => {
+describeDict('parseDecisions', () => {
   it('приймає чистий JSON', () => {
     expect(parseDecisions('{"замок": 0, "горі": 1}')).toEqual({ замок: 0, горі: 1 });
   });
@@ -41,7 +42,7 @@ describe('parseDecisions', () => {
   });
 });
 
-describe('applyDecisions', () => {
+describeDict('applyDecisions', () => {
   it('застосовує рішення і показує пропущені', () => {
     const result = prepare('Замок стоїть на горі.', { dictionary: dict });
     const report = applyDecisions(result.homographs, { замок: 0 });

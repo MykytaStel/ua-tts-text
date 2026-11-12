@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { describeDict, loadDictFixture } from './dict-fixture.js';
 import { StressDictionary } from '../src/dict.js';
 import { Lexicon } from '../src/lexicon.js';
 import { prepare } from '../src/index.js';
@@ -8,10 +9,10 @@ import { stressify } from '../src/stress.js';
 let dict: StressDictionary;
 
 beforeAll(() => {
-  dict = StressDictionary.load(new URL('../data/dict.bin', import.meta.url).pathname);
+  dict = loadDictFixture();
 });
 
-describe('словник', () => {
+describeDict('словник', () => {
   it('завантажується і містить понад 2,5 млн слів', () => {
     expect(dict.size).toBeGreaterThan(2_500_000);
   });
@@ -32,7 +33,7 @@ describe('словник', () => {
   });
 });
 
-describe('stressify', () => {
+describeDict('stressify', () => {
   it('ставить «+» перед голосною', () => {
     expect(stressify('молоко', dict, { symbol: 'plus-before' }).text).toBe('молок+о');
   });
@@ -73,7 +74,7 @@ describe('stressify', () => {
   });
 });
 
-describe('лексикон', () => {
+describeDict('лексикон', () => {
   it('перекриває омонімію словника', () => {
     const lexicon = Lexicon.loadTsv(new URL('../lexicon/names.tsv', import.meta.url).pathname);
     const chosen = lexicon.lookup('київ');
@@ -92,7 +93,7 @@ describe('лексикон', () => {
   });
 });
 
-describe('контекст омонімів', () => {
+describeDict('контекст омонімів', () => {
   it('повертає речення, у якому стоїть слово', () => {
     const result = prepare('Замок стоїть на горі. Далі — поле.', { dictionary: dict });
     const castle = result.homographs.find((h) => h.key === 'замок');
@@ -100,7 +101,7 @@ describe('контекст омонімів', () => {
   });
 });
 
-describe('render', () => {
+describeDict('render', () => {
   it('підбирає символ під рушій', () => {
     expect(render('молоко', 'tts-uk', dict).text).toBe('молок+о');
     expect(render('молоко', 'styletts2', dict).text).toBe('молоко+');
@@ -115,7 +116,7 @@ describe('render', () => {
   });
 });
 
-describe('prepare', () => {
+describeDict('prepare', () => {
   it('нормалізує і позначає наголос під рушій', () => {
     const result = prepare('у 1675 році тут було молоко', { dictionary: dict, engine: 'tts-uk' });
     expect(result.text).toBe("у т+исяча шістс+от сімдес+ят п'+ятому р+оці тут бул+о молок+о");

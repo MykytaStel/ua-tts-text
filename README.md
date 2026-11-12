@@ -3,6 +3,8 @@
 Готує український текст до озвучки: числа й дати словами, скорочення, наголоси
 у форматі конкретного рушія TTS.
 
+[![ci](https://github.com/MykytaStel/ua-tts-text/actions/workflows/ci.yml/badge.svg)](https://github.com/MykytaStel/ua-tts-text/actions/workflows/ci.yml)
+
 Проблема, яку розв'язує: більшість рушіїв читають «1675» якось собі, «ст.» — як
 «ст», а наголоси або не розуміють зовсім, або розуміють кожен по-своєму.
 

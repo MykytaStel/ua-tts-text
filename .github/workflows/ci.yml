@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Тести без словника
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  with-dictionary:
+    name: Тести зі словником
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Словник наголосів
+        uses: actions/cache@v4
+        with:
+          path: data/dict.bin
+          key: dict-${{ hashFiles('scripts/build-dict.mjs', 'scripts/fetch-dict.mjs') }}
+      - name: Зібрати словник, якщо немає в кеші
+        run: test -f data/dict.bin || node scripts/fetch-dict.mjs
+      - run: pnpm test
+      - name: Бенчмарк на corpus
+        run: node scripts/bench.mjs
