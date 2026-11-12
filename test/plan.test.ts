@@ -31,6 +31,18 @@ describe('план мовлення', () => {
     expect(renderPlan(plan, 'plain')).toBe('Раз, два. Три.');
   });
 
+  it('позначає акцент на запереченні й контрасті', () => {
+    const plan = planSpeech('Це не так. Але ми знаємо.');
+    expect(plan.segments[0]!.emphasis).toBe(true);
+    expect(plan.segments[1]!.emphasis).toBe(true);
+    expect(planSpeech('Поле і ліс.').segments[0]!.emphasis).toBe(false);
+  });
+
+  it('додає emphasis у SSML', () => {
+    const ssml = renderPlan(planSpeech('Це не так.'), 'ssml');
+    expect(ssml).toContain('<emphasis level="moderate">');
+  });
+
   it('екранує XML-символи', () => {
     const plan = planSpeech('A & B < C.');
     expect(renderPlan(plan, 'ssml')).toContain('&amp;');

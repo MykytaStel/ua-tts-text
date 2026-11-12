@@ -15,6 +15,8 @@ export interface SpeechSegment {
   pauseAfterMs: number;
   /** Скільки слів у сегменті — для оцінки тривалості. */
   words: number;
+  /** Чи варто підсилити фразу: заперечення, контраст, оклик. */
+  emphasis: boolean;
 }
 
 export interface SpeechPlan {
@@ -28,9 +30,18 @@ export interface PlanOptions {
   sentencePauseMs?: number;
   /** Пауза на комі, тире, двокрапці. */
   clausePauseMs?: number;
-  /** Темп мовлення, слів за хвилину. */
+  /**
+   * Темп мовлення, слів за хвилину. Типове 125 — виміряно на реальному
+   * аудіо tts-uk (62 слова за 30,3 с), а не взято з голови.
+   */
   wordsPerMinute?: number;
 }
+
+/**
+ * Маркери, після яких фразу варто підсилити: заперечення й контраст
+ * тримають на собі увагу, а оклик підсилює сам себе.
+ */
+const EMPHASIS_RE = /(?:^|[\s,(])(?:не|ні|але|проте|однак|саме|лише|тільки|навіть)(?:[\s,.)]|$)/iu;
 
 const SENTENCE_RE = /[^.!?…]+[.!?…]*/gu;
 const CLAUSE_RE = /[^,;:—–]+[,;:—–]?/gu;
@@ -53,7 +64,7 @@ function wordCount(text: string): number {
 export function planSpeech(text: string, options: PlanOptions = {}): SpeechPlan {
   const sentencePauseMs = options.sentencePauseMs ?? 480;
   const clausePauseMs = options.clausePauseMs ?? 220;
-  const wordsPerMinute = options.wordsPerMinute ?? 150;
+  const wordsPerMinute = options.wordsPerMinute ?? 125;
 
   const segments: SpeechSegment[] = [];
   const sentences = [...text.matchAll(SENTENCE_RE)].map((match) => match[0].trim()).filter(Boolean);
@@ -68,13 +79,15 @@ export function planSpeech(text: string, options: PlanOptions = {}): SpeechPlan 
         kind: kindOf(clause),
         pauseAfterMs: isLastClause ? (isLastSentence ? 0 : sentencePauseMs) : clausePauseMs,
         words: wordCount(clause),
+        emphasis: EMPHASIS_RE.test(clause) || kindOf(clause) === 'exclamation',
       });
     });
   });
 
+  // wpm виміряно на живому аудіо разом із паузами на пунктуації, тому додавати
+  // pauseAfterMs ще раз не можна — буде подвійний облік.
   const speechMs = (segments.reduce((sum, segment) => sum + segment.words, 0) / wordsPerMinute) * 60_000;
-  const pauseMs = segments.reduce((sum, segment) => sum + segment.pauseAfterMs, 0);
-  return { segments, estimatedMs: Math.round(speechMs + pauseMs) };
+  return { segments, estimatedMs: Math.round(speechMs) };
 }
 
 const escapeSsml = (value: string) => value.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;');
@@ -87,7 +100,8 @@ export function renderPlan(plan: SpeechPlan, profile: 'plain' | 'ssml'): string 
   if (profile === 'plain') return plan.segments.map((segment) => segment.text).join(' ').trim();
   const body = plan.segments
     .map((segment, index) => {
-      const text = escapeSsml(segment.text);
+      const raw = escapeSsml(segment.text);
+      const text = segment.emphasis ? `<emphasis level="moderate">${raw}</emphasis>` : raw;
       const isLast = index === plan.segments.length - 1;
       return isLast || segment.pauseAfterMs === 0 ? text : `${text}<break time="${segment.pauseAfterMs}ms"/>`;
     })
