@@ -57,11 +57,14 @@ const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
   ['кг', { forms: ['кілограм', 'кілограми', 'кілограмів'], gender: 'm' }],
   ['мг', { forms: ['міліграм', 'міліграми', 'міліграмів'], gender: 'm' }],
   ['га', { forms: ['гектар', 'гектари', 'гектарів'], gender: 'm' }],
+  ['грн.', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
   ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
   ['°C', { forms: ['градус', 'градуси', 'градусів'], gender: 'm' }],
   ['°', { forms: ['градус', 'градуси', 'градусів'], gender: 'm' }],
   ['шт.', { forms: ['штука', 'штуки', 'штук'], gender: 'f' }],
+  ['млрд.', { forms: ['мільярд', 'мільярди', 'мільярдів'], gender: 'm' }],
   ['млрд', { forms: ['мільярд', 'мільярди', 'мільярдів'], gender: 'm' }],
+  ['млн.', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm' }],
   ['млн', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm' }],
   ['тис.', { forms: ['тисяча', 'тисячі', 'тисяч'], gender: 'f' }],
   ['т', { forms: ['тонна', 'тонни', 'тонн'], gender: 'f' }],
@@ -70,7 +73,8 @@ const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
   ['л', { forms: ['літр', 'літри', 'літрів'], gender: 'm' }],
 ];
 
-const SCALE_UNITS = new Set(['млн', 'млрд', 'тис.']);
+// Ключі без крапки: база обчислюється як unit[0].replace(/\.$/, '').
+const SCALE_UNITS = new Set(['млн', 'млрд', 'тис']);
 
 const ABBREVIATIONS: ReadonlyArray<readonly [RegExp, string]> = [
   // \b не працює для кирилиці: у JS він спирається на ASCII-межі слів.
@@ -119,6 +123,35 @@ function readNumber(raw: string, gender: Gender = 'm'): string {
   return cardinal(Number(raw), gender);
 }
 
+const CURRENCIES: ReadonlyArray<readonly [string, { forms: readonly [string, string, string]; gender: Gender } | null]> = [
+  ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
+  ['доларів', { forms: ['долар', 'долари', 'доларів'], gender: 'm' }],
+  ['дол', { forms: ['долар', 'долари', 'доларів'], gender: 'm' }],
+  ['євро', null],
+];
+
+/** «250 тис. грн.» → «двісті п'ятдесят тисяч гривень»: масштаб і валюта розгортаються разом. */
+function expandScaledCurrency(text: string): string {
+  const currencies = CURRENCIES.map(([c]) => escapeRe(c)).join('|');
+  const re = new RegExp(
+    `(\\d+(?:[.,]\\d+)?)\\s*(тис\\.|млн\\.?|млрд\\.?)\\s*(${currencies})(?![\\p{L}\\d])`,
+    'giu',
+  );
+  return text.replace(re, (match, rawNumber: string, scale: string, currencyRaw: string) => {
+    const value = parseNumeric(rawNumber);
+    if (value === null) return match;
+    const unitScale = scale.replace(/\.$/u, '');
+    const factor = unitScale === 'млрд' ? 1_000_000_000 : unitScale === 'млн' ? 1_000_000 : 1_000;
+    const total = value * factor;
+    if (Math.abs(total - Math.round(total)) > 1e-6) return match;
+    const currency = CURRENCIES.find(([c]) => c === currencyRaw.replace(/\.$/u, ''));
+    if (!currency) return match;
+    const words = cardinal(Math.round(total), currency[1]?.gender ?? 'm');
+    if (!currency[1]) return `${words} євро`;
+    return `${words} ${pluralForm(Math.round(total), currency[1].forms)}`;
+  });
+}
+
 function expandUnits(text: string): string {
   const names = [...UNITS].map(([u]) => escapeRe(u)).sort((a, b) => b.length - a.length);
   const re = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${names.join('|')})(?![\\p{L}\\d])`, 'giu');
@@ -130,8 +163,9 @@ function expandUnits(text: string): string {
     const value = parseNumeric(rawNumber);
     if (value === null) return match;
 
-    if (SCALE_UNITS.has(unit[0])) {
-      const factor = unit[0] === 'млрд' ? 1_000_000_000 : unit[0] === 'млн' ? 1_000_000 : 1_000;
+    const base = unit[0].replace(/\.$/u, '');
+    if (SCALE_UNITS.has(base)) {
+      const factor = base === 'млрд' ? 1_000_000_000 : base === 'млн' ? 1_000_000 : 1_000;
       const scaled = value * factor;
       if (value < 1000 && Math.abs(scaled - Math.round(scaled)) < 1e-6) {
         return cardinal(Math.round(scaled), def.gender);
@@ -159,15 +193,26 @@ function expandYears(text: string): string {
   return text.replace(re, (match, rawYear: string, noun: string) => {
     const year = Number(rawYear);
     if (!Number.isFinite(year) || year > 2999) return match;
-    // «5 р.» — це «5 років», а не «п'ятого року»; скорочення року має сенс лише для 4 цифр.
-    if ((noun === 'р.' || noun === 'рр.') && rawYear.length !== 4) return match;
-    return yearWords(year, noun) ?? match;
+    // «5 р.», «за 4 роки» — це тривалість, а не «п'ятий рік» чи «четверті роки».
+    const quantityNouns = new Set(['р.', 'рр.', 'років', 'роки', 'року', 'рік']);
+    if (year < 1000 && quantityNouns.has(noun.toLowerCase())) {
+      return `${cardinal(year)} ${pluralForm(year, ['рік', 'роки', 'років'])}`;
+    }
+    const nounForm = noun === 'р.' ? 'року' : noun === 'рр.' ? 'роках' : noun;
+    return yearWords(year, nounForm) ?? match;
   });
 }
 
 function expandRomanCenturies(text: string): string {
   const values: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
-  const re = /\b([IVXLC]{1,5})\s+(століття|ст\.)/giu;
+  const forms: Record<string, 'gen' | 'loc' | 'plurLoc'> = {
+    'століття': 'gen',
+    'столітті': 'loc',
+    'століть': 'plurLoc',
+    'ст.': 'gen',
+  };
+  // \b не працює для кирилиці, тому межу перевіряємо lookbehind-ом.
+  const re = /(?<![\p{L}])([IVXLC]{1,5})\s+(століття|столітті|століть|ст\.)/giu;
   return text.replace(re, (match, romanRaw: string, noun: string) => {
     const roman = romanRaw.toUpperCase();
     let total = 0;
@@ -177,13 +222,18 @@ function expandRomanCenturies(text: string): string {
       if (current === undefined) return match;
       total += next !== undefined && next > current ? -current : current;
     }
-    return `${inflectOrdinal(ordinal(total), 'gen')} ${noun}`;
+    const form = forms[noun.toLowerCase()];
+    if (!form) return match;
+    return `${inflectOrdinal(ordinal(total), form)} ${noun}`;
   });
 }
 
 function expandDates(text: string): string {
   const dotted = /(\d{1,2})\.(\d{1,2})\.(\d{4})/gu;
-  const withMonthName = new RegExp(`(\\d{1,2})\\s+(${Object.keys(MONTHS_GENITIVE).join('|')})(?:\\s+(\\d{4}))?`, 'giu');
+  const withMonthName = new RegExp(
+    `(\\d{1,2})\\s+(${Object.keys(MONTHS_GENITIVE).join('|')})(?:\\s+(\\d{4})(?:\\s+(?:року|р\\.))?)?`,
+    'giu',
+  );
   const dayWord = (day: number) => inflectOrdinal(ordinal(day), 'gen');
 
   const afterDotted = text.replace(dotted, (match, day: string, month: string, year: string) => {
@@ -245,6 +295,7 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   text = expandYears(text);
   text = expandRomanCenturies(text);
   text = expandPercent(text);
+  text = expandScaledCurrency(text);
   text = expandUnits(text);
 
   if (abbreviations) text = expandAbbreviations(text);

@@ -5,6 +5,7 @@
 import type { StressDictionary } from './dict.js';
 import { normalize, type NormalizeOptions } from './normalize.js';
 import { render, type EngineId, type RenderResult } from './render.js';
+import { homographs, type Homograph } from './review.js';
 import type { StressOptions } from './stress.js';
 
 export * from './dict.js';
@@ -29,6 +30,8 @@ export interface PrepareResult {
   warnings: string[];
   ambiguous: string[];
   unknown: string[];
+  /** Омоніми з двома прочитаннями — те, що має вирішити людина або LLM. */
+  homographs: Homograph[];
   marked: number;
 }
 
@@ -37,7 +40,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
   const normalized = normalize(input, options.normalize);
 
   if (!options.dictionary) {
-    return { text: normalized, engine: null, warnings: [], ambiguous: [], unknown: [], marked: 0 };
+    return { text: normalized, engine: null, warnings: [], ambiguous: [], unknown: [], homographs: [], marked: 0 };
   }
 
   const engine = options.engine ?? 'plain';
@@ -49,6 +52,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
     warnings: result.warnings,
     ambiguous: result.ambiguous,
     unknown: result.unknown,
+    homographs: homographs(normalized, options.dictionary),
     marked: result.marked,
   };
 }

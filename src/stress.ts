@@ -18,6 +18,11 @@ export interface StressOptions {
   minLength?: number;
   /** З якої довжини скаржитись на відсутність слова у словнику (короткі — шум). */
   minReportLength?: number;
+  /**
+   * Рішення для омонімів: слово → 0 (перший варіант словника) або 1 (другий).
+   * Сюди потрапляє вибір людини або LLM після перегляду списку омонімів.
+   */
+  decisions?: Readonly<Record<string, 0 | 1>>;
 }
 
 export interface StressResult {
@@ -31,6 +36,9 @@ export interface StressResult {
 }
 
 // «+» входить у слово, щоб ручний наголос не розривався на два токени.
+/** «зе-се-у», «ес-ша-а» — це абревіатури по літерах, а не слова зі словника. */
+const LETTER_SPELL_RE = /^\p{L}{1,2}(?:-\p{L}{1,2})+$/u;
+
 const VOWELS_RE = /[аеєиіїоуяю]/gu;
 
 /** Односкладові слова наголосу не потребують — і не мають сенсу у звіті. */
@@ -40,7 +48,8 @@ function needsStress(word: string): boolean {
 
 const WORD_RE = /[\p{L}][\p{L}\u2019\u02bc'`+\-]*/gu;
 
-function insertMark(word: string, positions: readonly number[], symbol: StressSymbol): string {
+/** Публічна: ставить наголос у слові за індексами голосних. */
+export function markWord(word: string, positions: readonly number[], symbol: StressSymbol): string {
   if (symbol === 'none' || positions.length === 0) return word;
   const chars = [...word];
   const sorted = [...positions].sort((a, b) => b - a);
@@ -55,7 +64,13 @@ function insertMark(word: string, positions: readonly number[], symbol: StressSy
 
 /** Позначає наголоси у вже нормалізованому тексті. */
 export function stressify(text: string, dictionary: StressDictionary, options: StressOptions = {}): StressResult {
-  const { symbol = 'acute', onAmbiguity = 'skip', minLength = 3, minReportLength = 4 } = options;
+  const {
+    symbol = 'acute',
+    onAmbiguity = 'skip',
+    minLength = 3,
+    minReportLength = 4,
+    decisions = {},
+  } = options;
 
   const ambiguous = new Set<string>();
   const unknown = new Set<string>();
@@ -64,6 +79,8 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
   const result = text.replace(WORD_RE, (word) => {
     // Уже позначене вручну (словник вимови) не чіпаємо.
     if (word.includes('+')) return word;
+    // Прозвучені по літерах абревіатури наголошувати не треба.
+    if (LETTER_SPELL_RE.test(word)) return word;
 
     const normalized = normalizeWord(word).replace(/-+$/u, '');
     if (normalized.length < minLength) return word;
@@ -76,20 +93,25 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     }
 
     if (hit.alternative !== null) {
+      const decision = decisions[normalized] ?? decisions[word];
+      if (decision !== undefined) {
+        marked += 1;
+        return markWord(word, [decision === 0 ? hit.position : hit.alternative], symbol);
+      }
       if (onAmbiguity === 'skip') {
         ambiguous.add(word);
         return word;
       }
       if (onAmbiguity === 'first') {
         marked += 1;
-        return insertMark(word, [hit.position], symbol);
+        return markWord(word, [hit.position], symbol);
       }
       marked += 1;
-      return insertMark(word, [hit.position, hit.alternative], symbol);
+      return markWord(word, [hit.position, hit.alternative], symbol);
     }
 
     marked += 1;
-    return insertMark(word, [hit.position], symbol);
+    return markWord(word, [hit.position], symbol);
   });
 
   if (symbol === 'none') {

@@ -3,6 +3,9 @@
  * перед тим, як віддавати текст у синтез.
  */
 
+import { normalizeWord, type StressDictionary } from './dict.js';
+import { markWord, type StressSymbol } from './stress.js';
+
 export type IssueKind = 'digits' | 'brackets' | 'abbreviation' | 'latin' | 'spacing';
 
 export interface Issue {
@@ -38,6 +41,38 @@ const CHECKS: ReadonlyArray<{ kind: IssueKind; pattern: RegExp; hint: string }> 
     hint: 'Проблема з пробілами або подвійна пунктуація.',
   },
 ];
+
+const WORD_RE = /[\p{L}][\p{L}\u2019\u02bc'`+\-]*/gu;
+
+export interface Homograph {
+  /** Слово, як воно стоїть у тексті. */
+  word: string;
+  /** Ключ для рішень (нижній регістр, звичайний апостроф). */
+  key: string;
+  /** Два прочитання з наголосом — людина або LLM обирає потрібне. */
+  variants: [string, string];
+}
+
+/** Омоніми в тексті: обидва варіанти наголосу, щоб було з чого вибирати. */
+export function homographs(text: string, dictionary: StressDictionary, symbol: StressSymbol = 'acute'): Homograph[] {
+  const seen = new Set<string>();
+  const result: Homograph[] = [];
+  for (const match of text.matchAll(WORD_RE)) {
+    const word = match[0];
+    if (word.includes('+')) continue;
+    const key = normalizeWord(word).replace(/-+$/u, '');
+    if (key.length < 3 || seen.has(key)) continue;
+    const hit = dictionary.lookup(key);
+    if (!hit || hit.alternative === null) continue;
+    seen.add(key);
+    result.push({
+      word,
+      key,
+      variants: [markWord(word, [hit.position], symbol), markWord(word, [hit.alternative], symbol)],
+    });
+  }
+  return result;
+}
 
 /** Знаходить усе, що може зіпсувати озвучку. */
 export function lint(text: string): Issue[] {
