@@ -81,6 +81,56 @@ export class StressDictionary {
     if (this.#cache.size < 200_000) this.#cache.set(word, found);
     return found;
   }
+
+  /**
+   * Наголос за спільним стемом: для «молок» знаходить «молоко» і повертає
+   * позицію голосної, якщо вона всередині стема. Так відмінювані форми й
+   * частини складних слів успадковують наголос від відомого родича.
+   */
+  stemStress(stem: string): number | null {
+    const needle = Buffer.from(stem, 'utf8');
+    if (needle.length === 0) return null;
+    const stemLength = [...stem].length;
+
+    let low = 0;
+    let high = this.size - 1;
+    let first = -1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const start = this.#buffer.readUInt32LE(this.#offsets + mid * 4);
+      const end = this.#buffer.readUInt32LE(this.#offsets + (mid + 1) * 4);
+      const slice = this.#buffer.subarray(this.#keys + start, this.#keys + end);
+      if (Buffer.compare(slice.subarray(0, needle.length), needle) >= 0) {
+        first = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+    if (first < 0) return null;
+
+    const votes = new Map<number, number>();
+    for (let i = first; i < this.size && i < first + 12; i += 1) {
+      const start = this.#buffer.readUInt32LE(this.#offsets + i * 4);
+      const end = this.#buffer.readUInt32LE(this.#offsets + (i + 1) * 4);
+      const slice = this.#buffer.subarray(this.#keys + start, this.#keys + end);
+      if (Buffer.compare(slice.subarray(0, needle.length), needle) !== 0) break;
+      const base = this.#positions + i * 2;
+      const position = this.#buffer[base]!;
+      if (position === NONE || position >= stemLength) continue;
+      votes.set(position, (votes.get(position) ?? 0) + 1);
+    }
+
+    let best: number | null = null;
+    let bestCount = 0;
+    for (const [position, count] of votes) {
+      if (count > bestCount) {
+        bestCount = count;
+        best = position;
+      }
+    }
+    return best;
+  }
 }
 
 /** Нормалізує слово до вигляду ключів словника. */

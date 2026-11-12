@@ -101,6 +101,28 @@ describeDict('контекст омонімів', () => {
   });
 });
 
+describeDict('фолбек для невідомих слів', () => {
+  it('наголошує частини дефісного слова', () => {
+    const result = stressify('пів-України', dict, { symbol: 'plus-before' });
+    expect(result.text).toBe('пів-Укра+їни');
+    expect(result.inferred).toBe(1);
+    expect(result.unknown).toEqual([]);
+  });
+
+  it('переносить наголос зі спільного стема', () => {
+    expect(stressify('ковбасити', dict, { symbol: 'plus-before' }).text).toBe('ковб+асити');
+  });
+
+  it('приймає явний наголос (відповідь LLM)', () => {
+    const result = stressify('Ґуґл', dict, { symbol: 'plus-before', overrides: { 'ґуґл': 1 } });
+    expect(result.text).toBe('Ґ+уґл');
+  });
+
+  it('омонім без рішення лишається без наголосу, а не вгадується', () => {
+    expect(stressify('замок', dict, { symbol: 'plus-before' }).text).toBe('замок');
+  });
+});
+
 describeDict('render', () => {
   it('підбирає символ під рушій', () => {
     expect(render('молоко', 'tts-uk', dict).text).toBe('молок+о');

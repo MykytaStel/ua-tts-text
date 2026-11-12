@@ -2,11 +2,34 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { describeDict, loadDictFixture } from './dict-fixture.js';
 import type { StressDictionary } from '../src/dict.js';
 import { prepare, prepareMany } from '../src/index.js';
+import { parseStressAnswers, unknownPrompt } from '../src/resolve.js';
 
 let dict: StressDictionary;
 
 beforeAll(() => {
   dict = loadDictFixture();
+});
+
+describeDict('слова поза словником', () => {
+  it('будує запит і перевіряє індекси', () => {
+    const prompt = unknownPrompt(['краудфандинг', 'стендап']);
+    expect(prompt).toContain('краудфандинг');
+    expect(
+      parseStressAnswers('{"краудфандинг": 6, "стендап": 99, "зайве": 0}', ['краудфандинг', 'стендап']),
+    ).toEqual({ краудфандинг: 6 });
+  });
+
+  it('відкидає індекс на приголосній', () => {
+    expect(parseStressAnswers('{"стендап": 0}', ['стендап'])).toEqual({});
+  });
+
+  it('готує текст із наголосами від LLM', async () => {
+    const ask = async (prompt: string) =>
+      prompt.includes('немає у словнику') ? '{"краудфандинг": 6}' : '{}';
+    const result = await prepareMany(['Краудфандинг і замок'], { dictionary: dict, engine: 'tts-uk', ask });
+    expect(result.results[0]!.text).toContain('Краудф+андинг');
+    expect(result.overrides).toEqual({ краудфандинг: 6 });
+  });
 });
 
 describeDict('prepareMany з LLM', () => {

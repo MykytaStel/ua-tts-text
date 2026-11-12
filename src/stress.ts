@@ -4,6 +4,7 @@
  */
 
 import { normalizeWord, type StressDictionary } from './dict.js';
+import { stemOf } from './fallback.js';
 import type { StressSource } from './lexicon.js';
 
 export type StressSymbol = 'acute' | 'plus-before' | 'plus-after' | 'none';
@@ -26,6 +27,13 @@ export interface StressOptions {
   decisions?: Readonly<Record<string, 0 | 1>>;
   /** Лексикон власних назв: має пріоритет над словником. */
   lexicon?: StressSource;
+  /**
+   * Явні наголоси: слово → індекс наголошеної голосної. Сюди потрапляють
+   * відповіді LLM для слів, яких немає у словнику.
+   */
+  overrides?: Readonly<Record<string, number>>;
+  /** Переносити наголос зі спільного стема (увімкнено типово). */
+  inferFromStem?: boolean;
 }
 
 export interface StressResult {
@@ -36,6 +44,8 @@ export interface StressResult {
   unknown: string[];
   /** Скільки слів отримали наголос. */
   marked: number;
+  /** Скільки з них — за морфологічним фолбеком, а не зі словника. */
+  inferred: number;
 }
 
 // «+» входить у слово, щоб ручний наголос не розривався на два токени.
@@ -74,11 +84,42 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     minReportLength = 4,
     decisions = {},
     lexicon,
+    overrides = {},
+    inferFromStem = true,
   } = options;
 
   const ambiguous = new Set<string>();
   const unknown = new Set<string>();
   let marked = 0;
+  let inferred = 0;
+
+  /** Наголос однієї частини складного слова (для дефісних слів). */
+  const resolvePart = (key: string): number[] | null => {
+    const override = overrides[key];
+    if (override !== undefined) return [override];
+    if (!needsStress(key)) return [];
+    const hit = lexicon?.lookup(key) ?? dictionary.lookup(key);
+    if (!hit) return null;
+    if (hit.alternative !== null) return hit.dual ? [hit.position, hit.alternative] : null;
+    return [hit.position];
+  };
+
+  /** «Кам'янець-Подільський» → наголосити кожну частину окремо. */
+  const markCompound = (word: string): string | null => {
+    if (!word.includes('-')) return null;
+    const parts = word.split('-');
+    const out: string[] = [];
+    for (const part of parts) {
+      if (!part) {
+        out.push(part);
+        continue;
+      }
+      const positions = resolvePart(normalizeWord(part));
+      if (!positions) return null;
+      out.push(symbol === 'none' ? part : markWord(part, positions, symbol));
+    }
+    return out.join('-');
+  };
 
   const result = text.replace(WORD_RE, (word) => {
     // Уже позначене вручну (словник вимови) не чіпаємо.
@@ -89,8 +130,33 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     const normalized = normalizeWord(word).replace(/-+$/u, '');
     if (normalized.length < minLength) return word;
 
+    const override = overrides[normalized] ?? overrides[word];
+    if (override !== undefined && override >= 0) {
+      marked += 1;
+      return markWord(word, [override], symbol);
+    }
+
     const hit = lexicon?.lookup(normalized) ?? dictionary.lookup(normalized);
     if (!hit) {
+      const compound = markCompound(word);
+      if (compound !== null) {
+        marked += 1;
+        inferred += 1;
+        return compound;
+      }
+
+      if (inferFromStem) {
+        const stem = stemOf(normalized);
+        if (stem !== normalized && stem.length >= 4) {
+          const position = dictionary.stemStress(stem);
+          if (position !== null) {
+            marked += 1;
+            inferred += 1;
+            return markWord(word, [position], symbol);
+          }
+        }
+      }
+
       // Односкладові слова словник часто не маркує — це не проблема, а шум у звіті.
       if (needsStress(normalized) && normalized.length >= minReportLength) unknown.add(word);
       return word;
@@ -125,7 +191,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
   });
 
   if (symbol === 'none') {
-    return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked: 0 };
+    return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked: 0, inferred: 0 };
   }
-  return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked };
+  return { text: result, ambiguous: [...ambiguous], unknown: [...unknown], marked, inferred };
 }
