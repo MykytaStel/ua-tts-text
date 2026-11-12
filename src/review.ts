@@ -63,7 +63,7 @@ export function homographs(text: string, dictionary: StressDictionary, symbol: S
     const key = normalizeWord(word).replace(/-+$/u, '');
     if (key.length < 3 || seen.has(key)) continue;
     const hit = dictionary.lookup(key);
-    if (!hit || hit.alternative === null) continue;
+    if (!hit || hit.alternative === null || hit.dual) continue;
     seen.add(key);
     result.push({
       word,

@@ -92,6 +92,12 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
       return word;
     }
 
+    // Складне слово з двома наголосами — ставимо обидва, це не омонім.
+    if (hit.alternative !== null && hit.dual) {
+      marked += 1;
+      return markWord(word, [hit.position, hit.alternative], symbol);
+    }
+
     if (hit.alternative !== null) {
       const decision = decisions[normalized] ?? decisions[word];
       if (decision !== undefined) {

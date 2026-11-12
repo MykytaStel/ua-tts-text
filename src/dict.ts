@@ -12,8 +12,10 @@ const NONE = 255;
 export interface StressHit {
   /** Індекс голосної з наголосом у ключі. */
   readonly position: number;
-  /** Друга позиція для омонімів (за́мок / замо́к), якщо є. */
+  /** Друга позиція: другий наголос складного слова або варіант прочитання омоніма. */
   readonly alternative: number | null;
+  /** true — обидва наголоси чинні (Кам'яне́ць-Поді́льський); false — це різні прочитання. */
+  readonly dual: boolean;
 }
 
 export class StressDictionary {
@@ -22,6 +24,7 @@ export class StressDictionary {
   readonly #buffer: Buffer;
   readonly #offsets: number;
   readonly #positions: number;
+  readonly #flags: number;
   readonly #keys: number;
   readonly #cache = new Map<string, StressHit | null>();
 
@@ -33,7 +36,8 @@ export class StressDictionary {
     this.size = buffer.readUInt32LE(8);
     this.#offsets = HEADER_BYTES;
     this.#positions = HEADER_BYTES + (this.size + 1) * 4;
-    this.#keys = this.#positions + this.size * 2;
+    this.#flags = this.#positions + this.size * 2;
+    this.#keys = this.#flags + this.size;
   }
 
   static load(file: string): StressDictionary {
@@ -65,6 +69,7 @@ export class StressDictionary {
             : {
                 position: first,
                 alternative: second === NONE ? null : second,
+                dual: this.#buffer[this.#flags + mid] === 1,
               };
         break;
       }
