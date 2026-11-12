@@ -5,6 +5,7 @@
 
 import { normalizeWord, type StressDictionary } from './dict.js';
 import { markWord, type StressSymbol } from './stress.js';
+import type { StressSource } from './lexicon.js';
 
 export type IssueKind = 'digits' | 'brackets' | 'abbreviation' | 'latin' | 'spacing';
 
@@ -54,7 +55,12 @@ export interface Homograph {
 }
 
 /** Омоніми в тексті: обидва варіанти наголосу, щоб було з чого вибирати. */
-export function homographs(text: string, dictionary: StressDictionary, symbol: StressSymbol = 'acute'): Homograph[] {
+export function homographs(
+  text: string,
+  dictionary: StressDictionary,
+  symbol: StressSymbol = 'acute',
+  lexicon?: StressSource,
+): Homograph[] {
   const seen = new Set<string>();
   const result: Homograph[] = [];
   for (const match of text.matchAll(WORD_RE)) {
@@ -62,7 +68,7 @@ export function homographs(text: string, dictionary: StressDictionary, symbol: S
     if (word.includes('+')) continue;
     const key = normalizeWord(word).replace(/-+$/u, '');
     if (key.length < 3 || seen.has(key)) continue;
-    const hit = dictionary.lookup(key);
+    const hit = lexicon?.lookup(key) ?? dictionary.lookup(key);
     if (!hit || hit.alternative === null || hit.dual) continue;
     seen.add(key);
     result.push({

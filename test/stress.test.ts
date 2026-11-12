@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { StressDictionary } from '../src/dict.js';
+import { Lexicon } from '../src/lexicon.js';
 import { prepare } from '../src/index.js';
 import { ENGINES, render } from '../src/render.js';
 import { stressify } from '../src/stress.js';
@@ -69,6 +70,25 @@ describe('stressify', () => {
   it('невідоме слово потрапляє у звіт', () => {
     const result = stressify('квазіпсевдонауковість', dict);
     expect(result.unknown).toEqual(['квазіпсевдонауковість']);
+  });
+});
+
+describe('лексикон', () => {
+  it('перекриває омонімію словника', () => {
+    const lexicon = Lexicon.loadTsv(new URL('../lexicon/names.tsv', import.meta.url).pathname);
+    const chosen = lexicon.lookup('київ');
+    expect(chosen?.position).toBe(1);
+    expect(chosen?.alternative).toBeNull();
+
+    const result = prepare('Київ і Харків', { dictionary: dict, engine: 'tts-uk', lexicon });
+    expect(result.text).toBe('К+иїв і Х+арків');
+    expect(result.ambiguous).toEqual([]);
+  });
+
+  it('ставить два наголоси у складній назві', () => {
+    const lexicon = Lexicon.loadTsv(new URL('../lexicon/names.tsv', import.meta.url).pathname);
+    const result = stressify('Кам’янець-Подільський', dict, { symbol: 'plus-before', lexicon });
+    expect(result.text).toBe('Кам’ян+ець-Под+ільський');
   });
 });
 

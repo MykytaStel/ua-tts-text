@@ -3,12 +3,14 @@
  */
 
 import type { StressDictionary } from './dict.js';
+import type { StressSource } from './lexicon.js';
 import { normalize, type NormalizeOptions } from './normalize.js';
 import { render, type EngineId, type RenderResult } from './render.js';
 import { homographs, type Homograph } from './review.js';
 import type { StressOptions } from './stress.js';
 
 export * from './dict.js';
+export * from './lexicon.js';
 export * from './numbers.js';
 export * from './normalize.js';
 export * from './render.js';
@@ -20,6 +22,8 @@ export interface PrepareOptions {
   engine?: EngineId;
   /** Словник наголосів. Без нього наголоси не розставляються. */
   dictionary?: StressDictionary;
+  /** Лексикон власних назв — пріоритетніший за словник. */
+  lexicon?: StressSource;
   normalize?: NormalizeOptions;
   stress?: StressOptions;
 }
@@ -44,7 +48,8 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
   }
 
   const engine = options.engine ?? 'plain';
-  const result: RenderResult = render(normalized, engine, options.dictionary, options.stress);
+  const stressOptions: StressOptions = { ...options.stress, ...(options.lexicon ? { lexicon: options.lexicon } : {}) };
+  const result: RenderResult = render(normalized, engine, options.dictionary, stressOptions);
 
   return {
     text: result.text,
@@ -52,7 +57,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
     warnings: result.warnings,
     ambiguous: result.ambiguous,
     unknown: result.unknown,
-    homographs: homographs(normalized, options.dictionary),
+    homographs: homographs(normalized, options.dictionary, 'acute', options.lexicon),
     marked: result.marked,
   };
 }

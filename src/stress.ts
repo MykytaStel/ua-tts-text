@@ -4,6 +4,7 @@
  */
 
 import { normalizeWord, type StressDictionary } from './dict.js';
+import type { StressSource } from './lexicon.js';
 
 export type StressSymbol = 'acute' | 'plus-before' | 'plus-after' | 'none';
 
@@ -23,6 +24,8 @@ export interface StressOptions {
    * Сюди потрапляє вибір людини або LLM після перегляду списку омонімів.
    */
   decisions?: Readonly<Record<string, 0 | 1>>;
+  /** Лексикон власних назв: має пріоритет над словником. */
+  lexicon?: StressSource;
 }
 
 export interface StressResult {
@@ -70,6 +73,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     minLength = 3,
     minReportLength = 4,
     decisions = {},
+    lexicon,
   } = options;
 
   const ambiguous = new Set<string>();
@@ -85,7 +89,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     const normalized = normalizeWord(word).replace(/-+$/u, '');
     if (normalized.length < minLength) return word;
 
-    const hit = dictionary.lookup(normalized);
+    const hit = lexicon?.lookup(normalized) ?? dictionary.lookup(normalized);
     if (!hit) {
       // Односкладові слова словник часто не маркує — це не проблема, а шум у звіті.
       if (needsStress(normalized) && normalized.length >= minReportLength) unknown.add(word);

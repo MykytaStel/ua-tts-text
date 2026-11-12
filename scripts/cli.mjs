@@ -8,7 +8,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StressDictionary, lint, prepare } from '../dist/index.js';
+import { existsSync } from 'node:fs';
+import { Lexicon, StressDictionary, lint, prepare } from '../dist/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +21,8 @@ function arg(name, fallback) {
 const engine = arg('engine', 'plain');
 const dictPath = path.resolve(here, '..', arg('dict', 'data/dict.bin'));
 const asJson = process.argv.includes('--json');
+const decisionsArg = arg('decisions', '');
+const decisions = decisionsArg ? JSON.parse(readFileSync(path.resolve(here, '..', decisionsArg), 'utf8')) : {};
 
 let input = '';
 if (process.stdin.isTTY) {
@@ -33,8 +36,19 @@ if (!input.trim()) {
   process.exit(2);
 }
 
+if (!existsSync(dictPath)) {
+  console.error(`немає словника: ${dictPath}\nспочатку виконай: node scripts/fetch-dict.mjs`);
+  process.exit(2);
+}
 const dictionary = StressDictionary.load(dictPath);
-const result = prepare(input.trim(), { dictionary, engine });
+const lexiconPath = path.resolve(here, '..', arg('lexicon', 'lexicon/names.tsv'));
+const lexicon = existsSync(lexiconPath) ? Lexicon.loadTsv(lexiconPath) : undefined;
+const result = prepare(input.trim(), {
+  dictionary,
+  engine,
+  ...(lexicon ? { lexicon } : {}),
+  stress: { decisions },
+});
 const issues = lint(result.text);
 
 if (asJson) {
