@@ -7,6 +7,8 @@ import type { StressSource } from './lexicon.js';
 import { normalize, type NormalizeOptions } from './normalize.js';
 import { render, type EngineId, type RenderResult } from './render.js';
 import { homographs, type Homograph } from './review.js';
+import { resolveHomographs, type Asker } from './resolve.js';
+import type { Decisions } from './agent.js';
 import type { StressOptions } from './stress.js';
 
 export * from './dict.js';
@@ -16,6 +18,7 @@ export * from './normalize.js';
 export * from './render.js';
 export * from './review.js';
 export * from './agent.js';
+export * from './resolve.js';
 export * from './stress.js';
 
 export interface PrepareOptions {
@@ -38,6 +41,47 @@ export interface PrepareResult {
   /** Омоніми з двома прочитаннями — те, що має вирішити людина або LLM. */
   homographs: Homograph[];
   marked: number;
+}
+
+export interface PrepareManyOptions extends PrepareOptions {
+  /** Якщо задано — омоніми розв'язуються одним запитом до LLM. */
+  ask?: Asker;
+}
+
+export interface PrepareManyResult {
+  results: PrepareResult[];
+  decisions: Decisions;
+  missing: string[];
+  /** Довжина запиту до LLM — щоб оцінити витрати. */
+  promptLength: number;
+}
+
+/**
+ * Пакетна підготовка: омоніми збираються з усіх фрагментів і розв'язуються
+ * одним LLM-запитом. Без `ask` поводиться як звичайний `prepare`.
+ */
+export async function prepareMany(
+  inputs: readonly string[],
+  options: PrepareManyOptions = {},
+): Promise<PrepareManyResult> {
+  const first = inputs.map((input) => prepare(input, options));
+  if (!options.ask || !options.dictionary) {
+    return { results: first, decisions: {}, missing: [], promptLength: 0 };
+  }
+
+  const unique = new Map<string, Homograph>();
+  for (const result of first) {
+    for (const item of result.homographs) {
+      if (!unique.has(item.key)) unique.set(item.key, item);
+    }
+  }
+  if (unique.size === 0) return { results: first, decisions: {}, missing: [], promptLength: 0 };
+
+  const resolved = await resolveHomographs([...unique.values()], options.ask);
+  const results = inputs.map((input) =>
+    prepare(input, { ...options, stress: { ...options.stress, decisions: resolved.decisions } }),
+  );
+  return { results, decisions: resolved.decisions, missing: resolved.missing, promptLength: resolved.promptLength };
 }
 
 /** Нормалізація + наголоси під рушій. */

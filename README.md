@@ -69,6 +69,27 @@ const fixed = prepare(text, {
 });
 ```
 
+## Розв'язання омонімів через LLM
+
+Один запит на весь текст — модель бачить речення й обирає варіант:
+
+```bash
+UA_TTS_LLM_KEY=... UA_TTS_LLM_BASE_URL=https://api.deepseek.com UA_TTS_LLM_MODEL=deepseek-chat \
+  node scripts/cli.mjs --engine tts-uk --resolve < script.txt
+```
+
+```ts
+import { createOpenAiAsker, prepareMany } from 'ua-tts-text';
+
+const ask = createOpenAiAsker({ apiKey, model: 'deepseek-chat' });
+const { results, decisions, promptLength } = await prepareMany(paragraphs, {
+  dictionary, engine: 'tts-uk', ask,
+});
+```
+
+Запит на 5 омонімів — близько 900 символів; на ролик із 300 слів це один виклик і частки цента.
+Резолвер вимкнений, поки не задано `ask` (у CLI — `--resolve`).
+
 ## Розв'язання омонімів агентом
 
 ```ts

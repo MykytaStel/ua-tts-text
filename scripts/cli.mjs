@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
-import { Lexicon, StressDictionary, lint, prepare } from '../dist/index.js';
+import { Lexicon, StressDictionary, createOpenAiAsker, lint, prepare, prepareMany } from '../dist/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,12 +43,33 @@ if (!existsSync(dictPath)) {
 const dictionary = StressDictionary.load(dictPath);
 const lexiconPath = path.resolve(here, '..', arg('lexicon', 'lexicon/names.tsv'));
 const lexicon = existsSync(lexiconPath) ? Lexicon.loadTsv(lexiconPath) : undefined;
-const result = prepare(input.trim(), {
+const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
+const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';
+if (useResolve && !apiKey) {
+  console.error('--resolve потребує UA_TTS_LLM_KEY (OpenAI-сумісний ключ)');
+  process.exit(2);
+}
+
+const ask = useResolve
+  ? createOpenAiAsker({
+      apiKey,
+      ...(process.env['UA_TTS_LLM_BASE_URL'] ? { baseUrl: process.env['UA_TTS_LLM_BASE_URL'] } : {}),
+      ...(process.env['UA_TTS_LLM_MODEL'] ? { model: process.env['UA_TTS_LLM_MODEL'] } : {}),
+    })
+  : undefined;
+
+const base = {
   dictionary,
   engine,
   ...(lexicon ? { lexicon } : {}),
   stress: { decisions },
-});
+};
+
+const result = ask
+  ? (await prepareMany([input.trim()], { ...base, ask })).results[0]
+  : prepare(input.trim(), base);
+
+if (ask) console.error(`резолвер: ${result.homographs.length} омонімів у запиті`);
 const issues = lint(result.text);
 
 if (asJson) {
