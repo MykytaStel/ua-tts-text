@@ -5,9 +5,11 @@
 
 import { readFileSync } from 'node:fs';
 
-const MAGIC = 'UATS1';
-const HEADER_BYTES = 12;
+const MAGIC = 'UATS3';
+const HEADER_BYTES = 16;
 const NONE = 255;
+/** Мінімальна впевненість суфіксної моделі, щоб їй довіряти. */
+const SUFFIX_CONFIDENCE = 70;
 
 export interface StressHit {
   /** Індекс голосної з наголосом у ключі. */
@@ -25,7 +27,10 @@ export class StressDictionary {
   readonly #offsets: number;
   readonly #positions: number;
   readonly #flags: number;
+  readonly #suffix: number;
+  readonly #suffixBytes: number;
   readonly #keys: number;
+  #suffixTable: Map<string, { distance: number; confidence: number }> | null = null;
   readonly #cache = new Map<string, StressHit | null>();
 
   private constructor(buffer: Buffer) {
@@ -37,7 +42,9 @@ export class StressDictionary {
     this.#offsets = HEADER_BYTES;
     this.#positions = HEADER_BYTES + (this.size + 1) * 4;
     this.#flags = this.#positions + this.size * 2;
-    this.#keys = this.#flags + this.size;
+    this.#suffix = this.#flags + this.size;
+    this.#suffixBytes = buffer.readUInt32LE(12);
+    this.#keys = this.#suffix + this.#suffixBytes;
   }
 
   static load(file: string): StressDictionary {
@@ -130,6 +137,34 @@ export class StressDictionary {
       }
     }
     return best;
+  }
+
+  /** Суфіксна модель: розбирається ліниво, лише коли справді потрібна. */
+  #suffixes(): Map<string, { distance: number; confidence: number }> {
+    if (this.#suffixTable) return this.#suffixTable;
+    const table = new Map<string, { distance: number; confidence: number }>();
+    const text = this.#buffer.subarray(this.#suffix, this.#suffix + this.#suffixBytes).toString('utf8');
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      const [suffix, distance, confidence] = line.split('\t');
+      if (!suffix || distance === undefined || confidence === undefined) continue;
+      table.set(suffix, { distance: Number(distance), confidence: Number(confidence) });
+    }
+    this.#suffixTable = table;
+    return table;
+  }
+
+  /**
+   * Наголос за суфіксом: останні 5 літер дають найчастішу відстань до кінця.
+   * Повертає лише впевнені передбачення — краще пропустити, ніж поставити не туди.
+   */
+  suffixStress(word: string): number | null {
+    const chars = [...word];
+    if (chars.length < 5) return null;
+    const entry = this.#suffixes().get(chars.slice(-5).join(''));
+    if (!entry || entry.confidence < SUFFIX_CONFIDENCE) return null;
+    const position = chars.length - entry.distance;
+    return position >= 0 && position < chars.length ? position : null;
   }
 }
 

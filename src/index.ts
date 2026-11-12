@@ -19,6 +19,7 @@ export * from './render.js';
 export * from './review.js';
 export * from './agent.js';
 export * from './resolve.js';
+export * from './plan.js';
 export * from './stress.js';
 
 export interface PrepareOptions {

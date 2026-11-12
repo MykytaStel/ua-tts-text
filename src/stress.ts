@@ -155,6 +155,12 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
             return markWord(word, [position], symbol);
           }
         }
+        const bySuffix = dictionary.suffixStress(normalized);
+        if (bySuffix !== null) {
+          marked += 1;
+          inferred += 1;
+          return markWord(word, [bySuffix], symbol);
+        }
       }
 
       // Односкладові слова словник часто не маркує — це не проблема, а шум у звіті.
