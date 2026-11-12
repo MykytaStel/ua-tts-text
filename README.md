@@ -95,6 +95,20 @@ const fixed = prepare(text, {
 рушія вибрати, як розв'язувати омоніми через `decisions` і чого не робити
 (наприклад, не намагатися полагодити `piper-high` позначками).
 
+## Інтеграція у Content Factory
+
+Гілка `feat/ua-tts-text` у репозиторії фабрики (окремий worktree, `main` не зачеплений):
+
+- `packages/providers/src/tts-text-prep.ts` готує абзаци до синтезу (числа, дати, наголоси, лексикон);
+- `tts-uk.ts` передає готовий текст Python-скрипту з прапорцем `prepared: true`, і той лише синтезує;
+- якщо словника на машині немає — працює старий Python `prepare()`, тобто деградація плавна.
+
+End-to-end перевірка на `tts-uk` (M1 Pro, CPU): вхід «У 1675 році на 5 км шляху — 22% вологи. Замок стоїть на горі.»
+→ 9 с аудіо. Зразки: `samples/prepared-tts-uk.wav` (новий шлях) і `samples/fallback-tts-uk.wav` (старий).
+
+Словник і лексикон для рантайму лежать у `~/.local/share/ua-tts-text/` (шляхи перекриваються
+`UA_TTS_DICT` і `UA_TTS_LEXICON`).
+
 ## CLI
 
 ```bash
