@@ -101,4 +101,55 @@ export const SCRIPTS = [
     tags: ['acronyms'],
     text: 'ЗСУ та СБУ опублікували звіт; США і ЄС відреагували.',
   },
+  {
+    id: 'ordinal-date-1',
+    tags: ['dates', 'numbers'],
+    text: '1-го січня 2025 року о 9:00 відкрили музей.',
+  },
+  {
+    id: 'article-1',
+    tags: ['abbrev'],
+    text: 'Див. ст. 5 і с. 12 звіту.',
+  },
+  {
+    id: 'score-1',
+    tags: ['numbers'],
+    text: 'Матч закінчився 2:1, а серія — 3:2.',
+  },
+  {
+    id: 'big-number-1',
+    tags: ['numbers', 'units'],
+    text: '1 250 000 гривень зібрали за 10 днів.',
+  },
+  {
+    id: 'phone-1',
+    tags: ['numbers'],
+    text: 'Телефонуйте на 0 800 123 456.',
+  },
+  {
+    id: 'latin-number-1',
+    tags: ['latin', 'numbers'],
+    text: 'Новий iPhone 15 і Samsung S24 порівняли в 3 тестах.',
+  },
+  {
+    id: 'anniversary-1',
+    tags: ['numbers', 'units'],
+    text: 'До 100-річчя від дня народження видали 5 книжок.',
+  },
+  {
+    id: 'decade-1',
+    tags: ['years'],
+    text: 'У 2000-х роках тут збудували 4 школи.',
+  },
+  {
+    id: 'bc-1',
+    tags: ['years', 'abbrev'],
+    text: 'Місто заснували у 500 році до н.е.',
+  },
+  {
+    id: 'ratio-1',
+    tags: ['numbers', 'units'],
+    text: 'Шанси — 50/50, а ціна — 100 грн.',
+  },
 ];
+

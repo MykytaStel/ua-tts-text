@@ -271,6 +271,27 @@ function expandRomanCenturies(text: string): string {
   });
 }
 
+const DIGITS_WORDS = ['нуль', 'один', 'два', 'три', 'чотири', "п'ять", 'шість', 'сім', 'вісім', "дев'ять"];
+
+/** «1-го січня» → «першого січня». */
+function expandOrdinalDates(text: string): string {
+  return text.replace(/(\d{1,2})-го(?![\p{L}\d])/giu, (match, day: string) => {
+    const value = Number(day);
+    if (!Number.isFinite(value) || value < 1 || value > 31) return match;
+    return inflectOrdinal(ordinal(value), 'gen');
+  });
+}
+
+/** «50/50» → «п'ятдесят на п'ятдесят». */
+function expandRatios(text: string): string {
+  return text.replace(/(?<![\d.,/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d.,/])/gu, (match, a: string, b: string) => {
+    const left = Number(a);
+    const right = Number(b);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return match;
+    return `${cardinal(left)} на ${cardinal(right)}`;
+  });
+}
+
 function expandDates(text: string): string {
   const dotted = /(\d{1,2})\.(\d{1,2})\.(\d{4})/gu;
   const withMonthName = new RegExp(
@@ -334,7 +355,9 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   text = text.replace(/[’ʼ`´]/gu, "'");
   text = joinDigitGroups(text);
 
+  text = expandOrdinalDates(text);
   text = expandDates(text);
+  text = expandRatios(text);
   text = expandYearRanges(text);
   text = expandRanges(text);
   text = expandYears(text);
@@ -347,7 +370,19 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   if (acronyms) text = expandAcronyms(text);
 
   text = text.replace(/(\d+)\s*№|№\s*(\d+)/gu, (_m, a?: string, b?: string) => `номер ${a ?? b}`);
-  text = text.replace(/(\d+(?:[.,]\d+)?)/gu, (m) => readNumber(m));
+  text = text.replace(/(\d+(?:[.,]\d+)?)/gu, (match, ...rest: unknown[]) => {
+    const offset = rest[rest.length - 2] as number;
+    const whole = rest[rest.length - 1] as string;
+    const before = whole[offset - 1] ?? '';
+    const after = whole[offset + match.length] ?? '';
+    // «iPhone 15» і «S24»: цифри, приклеєні до латинки, не чіпаємо — їх має побачити звіт.
+    if (/[A-Za-z]/u.test(before) || /[A-Za-z]/u.test(after)) return match;
+    // Довгі послідовності (телефони, коди) читаємо по цифрах, а не як мільйони.
+    if (match.replace(/\D/gu, '').length >= 9) {
+      return [...match.replace(/\D/gu, '')].map((digit) => DIGITS_WORDS[Number(digit)]!).join(' ');
+    }
+    return readNumber(match);
+  });
 
   if (punctuation) text = cleanPunctuation(text);
   return text;

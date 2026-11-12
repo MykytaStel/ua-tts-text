@@ -63,9 +63,10 @@ for (const line of lines) {
   if (!key) continue;
 
   const unique = [...new Set(positions)].sort((a, b) => a - b).slice(0, 2);
-  // Два акути в одному рядку — це складне слово з двома наголосами (Кам'яне́ць-Поді́льський),
-  // а не два варіанти прочитання. Різні рядки з одним акутом — навпаки, варіанти.
-  const dual = unique.length > 1;
+  // Два акути в дефісному слові — це складне слово з двома наголосами
+  // (Кам'яне́ць-Поді́льський). Два акути в простому слові — варіативний наголос
+  // (по́ми́лка), і для TTS це два варіанти, а не два наголоси поспіль.
+  const dual = unique.length > 1 && key.includes('-');
   const existing = entries.get(key);
   if (!existing) {
     entries.set(key, { p1: unique[0] ?? 255, p2: unique[1] ?? 255, dual });
