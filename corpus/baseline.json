@@ -1,49 +1,49 @@
 {
-  "generatedAt": "2026-11-12T14:41:54.259Z",
-  "scripts": 30,
-  "words": 308,
-  "polysyllabic": 169,
-  "decisions": 25,
-  "table": "| варіант | наголошено | омоніми | невідомі | покриття | проблеми |\n|---|---|---|---|---|---|\n| plain | 0 | 26 | 2 | 0.0% | 6 |\n| tts-uk | 259 | 26 | 2 | 90.2% | 6 |\n| tts-uk + рішення | 286 | 0 | 2 | 99.3% | 6 |\n| styletts2 | 259 | 26 | 2 | 90.2% | 6 |\n| piper-medium | 259 | 26 | 2 | 90.2% | 6 |\n| piper-high | 0 | 26 | 2 | 0.0% | 6 |",
+  "generatedAt": "2026-11-12T14:43:36.308Z",
+  "scripts": 31,
+  "words": 319,
+  "polysyllabic": 174,
+  "decisions": 28,
+  "table": "| варіант | наголошено | омоніми | невідомі | покриття | проблеми |\n|---|---|---|---|---|---|\n| plain | 0 | 30 | 2 | 0.0% | 6 |\n| tts-uk | 266 | 30 | 2 | 89.3% | 6 |\n| tts-uk + рішення | 297 | 0 | 2 | 99.3% | 6 |\n| styletts2 | 266 | 30 | 2 | 89.3% | 6 |\n| piper-medium | 266 | 30 | 2 | 89.3% | 6 |\n| piper-high | 0 | 30 | 2 | 0.0% | 6 |",
   "stats": {
     "plain": {
       "marked": 0,
-      "ambiguous": 26,
+      "ambiguous": 30,
       "unknown": 2,
       "issues": 6,
       "warnings": []
     },
     "tts-uk": {
-      "marked": 259,
-      "ambiguous": 26,
+      "marked": 266,
+      "ambiguous": 30,
       "unknown": 2,
       "issues": 6,
       "warnings": []
     },
     "tts-uk + рішення": {
-      "marked": 286,
+      "marked": 297,
       "ambiguous": 0,
       "unknown": 2,
       "issues": 6,
       "warnings": []
     },
     "styletts2": {
-      "marked": 259,
-      "ambiguous": 26,
+      "marked": 266,
+      "ambiguous": 30,
       "unknown": 2,
       "issues": 6,
       "warnings": []
     },
     "piper-medium": {
-      "marked": 259,
-      "ambiguous": 26,
+      "marked": 266,
+      "ambiguous": 30,
       "unknown": 2,
       "issues": 6,
       "warnings": []
     },
     "piper-high": {
       "marked": 0,
-      "ambiguous": 26,
+      "ambiguous": 30,
       "unknown": 2,
       "issues": 6,
       "warnings": [
@@ -1632,6 +1632,59 @@
           "unknown": 0,
           "issues": 0,
           "text": "Шанси, п'ятдесят/п'ятдесят, а ціна, сто гривень"
+        }
+      }
+    },
+    {
+      "id": "ordinal-suffix-1",
+      "tags": [
+        "numbers",
+        "years"
+      ],
+      "digitsBefore": 4,
+      "polysyllabic": 5,
+      "variants": {
+        "plain": {
+          "marked": 0,
+          "ambiguous": 4,
+          "unknown": 0,
+          "issues": 0,
+          "text": "п'ятий поверх, друга черга і третє місце, усе з тисяча дев'ятсот дев'яностих років."
+        },
+        "tts-uk": {
+          "marked": 7,
+          "ambiguous": 4,
+          "unknown": 0,
+          "issues": 0,
+          "text": "п'+ятий поверх, др+уга черга і тр+етє м+ісце, усе з т+исяча дев'ятс+от дев'ян+остих років."
+        },
+        "tts-uk + рішення": {
+          "marked": 11,
+          "ambiguous": 0,
+          "unknown": 0,
+          "issues": 0,
+          "text": "п'+ятий п+оверх, др+уга ч+ерга і тр+етє м+ісце, ус+е з т+исяча дев'ятс+от дев'ян+остих р+оків."
+        },
+        "styletts2": {
+          "marked": 7,
+          "ambiguous": 4,
+          "unknown": 0,
+          "issues": 0,
+          "text": "п'я+тий поверх, дру+га черга і тре+тє мі+сце, усе з ти+сяча дев'ятсо+т дев'яно+стих років."
+        },
+        "piper-medium": {
+          "marked": 7,
+          "ambiguous": 4,
+          "unknown": 0,
+          "issues": 0,
+          "text": "п'я́тий поверх, дру́га черга і тре́тє мі́сце, усе з ти́сяча дев'ятсо́т дев'яно́стих років."
+        },
+        "piper-high": {
+          "marked": 0,
+          "ambiguous": 4,
+          "unknown": 0,
+          "issues": 0,
+          "text": "п'ятий поверх, друга черга і третє місце, усе з тисяча дев'ятсот дев'яностих років."
         }
       }
     }

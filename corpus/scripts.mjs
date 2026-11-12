@@ -151,5 +151,10 @@ export const SCRIPTS = [
     tags: ['numbers', 'units'],
     text: 'Шанси — 50/50, а ціна — 100 грн.',
   },
+  {
+    id: 'ordinal-suffix-1',
+    tags: ['numbers', 'years'],
+    text: '5-й поверх, 2-га черга і 3-тє місце — усе з 1990-х років.',
+  },
 ];
 

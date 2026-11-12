@@ -4,7 +4,7 @@
  */
 
 export type Gender = 'm' | 'f' | 'n';
-export type OrdinalForm = 'nom' | 'gen' | 'loc' | 'plurNom' | 'plurLoc';
+export type OrdinalForm = 'nom' | 'gen' | 'loc' | 'fem' | 'neut' | 'plurNom' | 'plurLoc';
 
 const ONES_M = ['', 'один', 'два', 'три', 'чотири', "п'ять", 'шість', 'сім', 'вісім', "дев'ять"];
 const ONES_F = ['', 'одна', 'дві', 'три', 'чотири', "п'ять", 'шість', 'сім', 'вісім', "дев'ять"];
@@ -209,12 +209,12 @@ export function inflectOrdinal(masculine: string, form: OrdinalForm): string {
   if (form === 'nom') return masculine;
   if (masculine.endsWith('ій')) {
     const base = masculine.slice(0, -2);
-    const endings = { gen: 'ього', loc: 'ьому', plurNom: 'і', plurLoc: 'іх' } as const;
+    const endings = { gen: 'ього', loc: 'ьому', plurNom: 'і', plurLoc: 'іх', fem: 'я', neut: 'є' } as const;
     return base + endings[form];
   }
   if (masculine.endsWith('ий')) {
     const base = masculine.slice(0, -2);
-    const endings = { gen: 'ого', loc: 'ому', plurNom: 'і', plurLoc: 'их' } as const;
+    const endings = { gen: 'ого', loc: 'ому', plurNom: 'і', plurLoc: 'их', fem: 'а', neut: 'е' } as const;
     return base + endings[form];
   }
   return masculine;

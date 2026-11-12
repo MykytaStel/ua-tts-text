@@ -10,6 +10,7 @@ import {
   inflectOrdinal,
   ordinal,
   pluralForm,
+  type OrdinalForm,
   yearRangeWords,
   yearWords,
   type Gender,
@@ -282,6 +283,38 @@ function expandOrdinalDates(text: string): string {
   });
 }
 
+const ORDINAL_SUFFIXES: Readonly<Record<string, OrdinalForm>> = {
+  й: 'nom',
+  го: 'gen',
+  ого: 'gen',
+  му: 'loc',
+  ому: 'loc',
+  га: 'fem',
+  а: 'fem',
+  я: 'fem',
+  ге: 'neut',
+  е: 'neut',
+  є: 'neut',
+  гі: 'plurNom',
+  і: 'plurNom',
+  их: 'plurLoc',
+  // «3-тє», «3-ті», «3-тя» — це «третє», «треті», «третя»: «т» належить основі.
+  тє: 'neut',
+  те: 'neut',
+  ті: 'plurNom',
+  тя: 'fem',
+};
+
+/** «5-й поверх» → «п'ятий поверх», «2-га черга» → «друга черга». */
+function expandOrdinalSuffixes(text: string): string {
+  return text.replace(/(\d{1,3})-([а-яіїєґ]{1,3})(?![\p{L}\d])/giu, (match, raw: string, suffixRaw: string) => {
+    const form = ORDINAL_SUFFIXES[suffixRaw.toLowerCase()];
+    const value = Number(raw);
+    if (!form || !Number.isFinite(value) || value < 1 || value > 999) return match;
+    return inflectOrdinal(ordinal(value), form);
+  });
+}
+
 /** «50/50» → «п'ятдесят на п'ятдесят». */
 function expandRatios(text: string): string {
   return text.replace(/(?<![\d.,/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d.,/])/gu, (match, a: string, b: string) => {
@@ -356,6 +389,7 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   text = joinDigitGroups(text);
 
   text = expandOrdinalDates(text);
+  text = expandOrdinalSuffixes(text);
   text = expandDates(text);
   text = expandRatios(text);
   text = expandYearRanges(text);
