@@ -12,7 +12,7 @@
 - [x] GitHub: https://github.com/MykytaStel/ua-tts-text (публічний, топіки додано)
 - [x] CI: тести зі словником і без нього
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
-- [ ] npm: потрібен `npm login`
+- [x] npm: https://www.npmjs.com/package/ua-tts-text (0.2.0, latest)
 
 ## Крок 1. GitHub (зроблено)
 
@@ -30,14 +30,14 @@ gh repo edit MykytaStel/ua-tts-text \
   --add-topic ukrainian --add-topic tts --add-topic text-normalization
 ```
 
-## Крок 2. npm
-
-Потрібен вхід (зараз `npm whoami` дає 401):
+## Крок 2. npm (зроблено)
 
 ```bash
-npm login
 npm publish
 ```
+
+Через 2FA npm спершу створює заглушку `0.0.0-stage` і тримає справжню версію
+в staging — після підтвердження в браузері вона стає `latest`.
 
 `prepack` збирає `dist` автоматично; словник у пакет не входить — його тягне
 `npx ua-tts-text` → `scripts/fetch-dict.mjs` (75 МБ, 2,84 млн словоформ).

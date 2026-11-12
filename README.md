@@ -4,6 +4,7 @@
 у форматі конкретного рушія TTS.
 
 [![ci](https://github.com/MykytaStel/ua-tts-text/actions/workflows/ci.yml/badge.svg)](https://github.com/MykytaStel/ua-tts-text/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/ua-tts-text)](https://www.npmjs.com/package/ua-tts-text)
 [![skills.sh](https://img.shields.io/badge/skills.sh-ua--voiceover--prep-blue)](https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep)
 
 Проблема, яку розв'язує: більшість рушіїв читають «1675» якось собі, «ст.» — як
@@ -25,13 +26,18 @@
 ## Встановлення
 
 ```bash
-git clone https://github.com/MykytaStel/ua-tts-text.git
-cd ua-tts-text
-pnpm install && pnpm build
-node scripts/fetch-dict.mjs   # 75 МБ словника, один раз
+npm i ua-tts-text
+node node_modules/ua-tts-text/scripts/fetch-dict.mjs   # 75 МБ словника, один раз
 ```
 
-Пакет у npm поки не опублікований — після публікації буде `npm i ua-tts-text`.
+Далі CLI бере словник за типовим шляхом `data/dict.bin` усередині пакета.
+
+Для розробки — з репозиторію:
+
+```bash
+git clone https://github.com/MykytaStel/ua-tts-text.git
+cd ua-tts-text && pnpm install && pnpm build && node scripts/fetch-dict.mjs
+```
 
 Скіл для агентів ставиться прямо з репозиторію:
 
@@ -178,6 +184,7 @@ End-to-end перевірка на `tts-uk` (M1 Pro, CPU): вхід «У 1675 р
 ## CLI
 
 ```bash
+npx ua-tts-text --engine tts-uk < script.txt
 node scripts/cli.mjs --engine tts-uk < script.txt
 node scripts/cli.mjs --engine tts-uk --decisions corpus/decisions.json < script.txt
 node scripts/cli.mjs --engine piper-high --json < script.txt

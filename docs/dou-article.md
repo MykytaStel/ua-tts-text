@@ -138,9 +138,8 @@ npx skills add MykytaStel/ua-tts-text
 ## Що далі
 
 Репозиторій: https://github.com/MykytaStel/ua-tts-text
+npm: https://www.npmjs.com/package/ua-tts-text
 Каталог скілів: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep
-
-`TODO: посилання на npm після публікації.`
 
 Якщо у вас є українська озвучка і ви ловили себе на думці «чому він так наголосив» —
 забирайте, ламайте, надсилайте слова, яких немає в лексиконі. Найкорисніше, що можна
