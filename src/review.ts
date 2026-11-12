@@ -8,7 +8,7 @@ import { markWord, type StressSymbol } from './stress.js';
 import type { StressSource } from './lexicon.js';
 import { contextViews, type ContextSource } from './context.js';
 
-export type IssueKind = 'digits' | 'brackets' | 'abbreviation' | 'latin' | 'spacing';
+export type IssueKind = 'digits' | 'brackets' | 'abbreviation' | 'latin' | 'spacing' | 'foreign';
 
 export interface Issue {
   kind: IssueKind;
@@ -36,6 +36,11 @@ const CHECKS: ReadonlyArray<{ kind: IssueKind; pattern: RegExp; hint: string }> 
     kind: 'latin',
     pattern: /(?<![\p{L}])[A-Za-z][A-Za-z'-]{1,}(?![\p{L}])/gu,
     hint: 'Латинка: перевір, чи рушій вимовить її правильно (бренд, назва, термін).',
+  },
+  {
+    kind: 'foreign',
+    pattern: /[ыэъёЫЭЪЁ]/gu,
+    hint: 'Літери, яких немає в українській: схоже на російське слово або кальку з нього.',
   },
   {
     kind: 'spacing',
