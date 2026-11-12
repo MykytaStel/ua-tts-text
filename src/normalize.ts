@@ -3,7 +3,17 @@
  * одиниці, скорочення, пунктуація. Наголоси — окремий модуль (stress.ts).
  */
 
-import { cardinal, decimalWords, inflectOrdinal, ordinal, pluralForm, yearWords, type Gender } from './numbers.js';
+import {
+  cardinal,
+  decimalWords,
+  genitiveCardinal,
+  inflectOrdinal,
+  ordinal,
+  pluralForm,
+  yearRangeWords,
+  yearWords,
+  type Gender,
+} from './numbers.js';
 
 export interface NormalizeOptions {
   /** Розгортати «ст.», «тис.», «т.д.» тощо. */
@@ -68,6 +78,7 @@ const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
   ['млн', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm' }],
   ['тис.', { forms: ['тисяча', 'тисячі', 'тисяч'], gender: 'f' }],
   ['т', { forms: ['тонна', 'тонни', 'тонн'], gender: 'f' }],
+  ['м/с', { forms: ['метр за секунду', 'метри за секунду', 'метрів за секунду'], gender: 'm' }],
   ['м', { forms: ['метр', 'метри', 'метрів'], gender: 'm' }],
   ['г', { forms: ['грам', 'грами', 'грамів'], gender: 'm' }],
   ['л', { forms: ['літр', 'літри', 'літрів'], gender: 'm' }],
@@ -203,6 +214,38 @@ function expandYears(text: string): string {
   });
 }
 
+function expandYearRanges(text: string): string {
+  return text.replace(
+    /(\d{4})\s*[–—-]\s*(\d{4})\s*(роках|роками|роки|років|року|рр\.)/giu,
+    (match, from: string, to: string, noun: string) => {
+      return yearRangeWords(Number(from), Number(to), noun) ?? match;
+    },
+  );
+}
+
+/** «15–20 м/с» → «від п'ятнадцяти до двадцяти метрів за секунду». */
+function expandRanges(text: string): string {
+  const units = [...UNITS].map(([u]) => escapeRe(u)).sort((a, b) => b.length - a.length).join('|');
+  const months = Object.keys(MONTHS_GENITIVE).join('|');
+  const re = new RegExp(
+    `(?<![\\d.,])(\\d{1,4})\\s*[–—-]\\s*(\\d{1,4})(?:\\s*(${units}))?(?![\\p{L}\\d])` +
+      `(?!\\s*(?:${months}|року|році|роках|років|роки|р\\.|ст\\.))`,
+    'gu',
+  );
+
+  return text.replace(re, (match, fromRaw: string, toRaw: string, unitRaw?: string) => {
+    const from = Number(fromRaw);
+    const to = Number(toRaw);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return match;
+    const head = `від ${genitiveCardinal(from)} до ${genitiveCardinal(to)}`;
+    if (!unitRaw) return head;
+    const unit = UNITS.find(([u]) => u.toLowerCase() === unitRaw.toLowerCase());
+    if (!unit) return `${head} ${unitRaw}`;
+    // Після «від … до …» іменник стоїть у родовому множини: «до семи кілометрів».
+    return `${head} ${unit[1].forms[2]}`;
+  });
+}
+
 function expandRomanCenturies(text: string): string {
   const values: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
   const forms: Record<string, 'gen' | 'loc' | 'plurLoc'> = {
@@ -292,6 +335,8 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   text = joinDigitGroups(text);
 
   text = expandDates(text);
+  text = expandYearRanges(text);
+  text = expandRanges(text);
   text = expandYears(text);
   text = expandRomanCenturies(text);
   text = expandPercent(text);

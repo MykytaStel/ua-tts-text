@@ -238,6 +238,90 @@ export function yearWords(year: number, noun: string): string | null {
   return `${inflectOrdinal(ordinal(year), form)} ${noun}`;
 }
 
+const GEN_ONES = ['', 'одного', 'двох', 'трьох', 'чотирьох', "п'яти", 'шести', 'семи', 'восьми', "дев'яти"];
+const GEN_TEENS = [
+  'десяти',
+  'одинадцяти',
+  'дванадцяти',
+  'тринадцяти',
+  'чотирнадцяти',
+  "п'ятнадцяти",
+  'шістнадцяти',
+  'сімнадцяти',
+  'вісімнадцяти',
+  "дев'ятнадцяти",
+];
+const GEN_TENS = [
+  '',
+  '',
+  'двадцяти',
+  'тридцяти',
+  'сорока',
+  "п'ятдесяти",
+  'шістдесяти',
+  'сімдесяти',
+  'вісімдесяти',
+  "дев'яноста",
+];
+const GEN_HUNDREDS = [
+  '',
+  'ста',
+  'двохсот',
+  'трьохсот',
+  'чотирьохсот',
+  "п'ятисот",
+  'шестисот',
+  'семисот',
+  'восьмисот',
+  "дев'ятисот",
+];
+
+function genUnder1000(n: number): string {
+  const out: string[] = [];
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  if (hundreds > 0) out.push(GEN_HUNDREDS[hundreds]!);
+  if (rest >= 10 && rest < 20) {
+    out.push(GEN_TEENS[rest - 10]!);
+  } else {
+    const tens = Math.floor(rest / 10);
+    const ones = rest % 10;
+    if (tens > 0) out.push(GEN_TENS[tens]!);
+    if (ones > 0) out.push(GEN_ONES[ones]!);
+  }
+  return out.join(' ');
+}
+
+/** Родовий відмінок: «від 5 до 7» → «від п'яти до семи». */
+export function genitiveCardinal(value: number): string {
+  const n = Math.trunc(value);
+  if (n < 0) throw new RangeError('genitiveCardinal: negative numbers are not supported');
+  if (n === 0) return 'нуля';
+  if (n < 1000) return genUnder1000(n);
+
+  const thousands = Math.floor(n / 1000);
+  const rest = n % 1000;
+  const parts: string[] = [];
+
+  if (thousands === 1) {
+    parts.push('тисячі');
+  } else if (thousands > 1) {
+    parts.push(`${genUnder1000(thousands)} ${pluralForm(thousands, ['тисячі', 'тисяч', 'тисяч'])}`);
+  }
+  if (rest > 0) parts.push(genUnder1000(rest));
+  return parts.join(' ');
+}
+
+/** «1990–1991 роках» → «дев'яностих — дев'яносто перших роках» (слово-носій один раз). */
+export function yearRangeWords(from: number, to: number, noun: string): string | null {
+  const form = YEAR_FORMS[noun.toLowerCase()];
+  if (!form) return null;
+  const start = inflectOrdinal(ordinal(from), form);
+  const end = inflectOrdinal(ordinal(to), form);
+  const display = noun === 'рр.' ? 'роках' : noun;
+  return `${start} — ${end} ${display}`;
+}
+
 const FRACTION_SCALES: Record<number, readonly [string, string, string]> = {
   1: ['десята', 'десяті', 'десятих'],
   2: ['сота', 'соті', 'сотих'],
