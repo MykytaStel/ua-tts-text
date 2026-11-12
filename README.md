@@ -47,6 +47,18 @@ const fixed = prepare(text, {
 });
 ```
 
+## Розв'язання омонімів агентом
+
+```ts
+import { applyDecisions, parseDecisions, prepare, reviewPrompt } from 'ua-tts-text';
+
+const first = prepare(text, { dictionary, engine: 'tts-uk' });
+const prompt = reviewPrompt(first.homographs); // готовий запит для LLM
+// …модель відповідає {"замок": 0, "горі": 1}
+const { decisions, missing } = applyDecisions(first.homographs, parseDecisions(answer));
+const final = prepare(text, { dictionary, engine: 'tts-uk', stress: { decisions } });
+```
+
 ## Профілі рушіїв
 
 | Рушій | Формат | Перевірено |

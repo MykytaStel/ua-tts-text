@@ -13,13 +13,19 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "lexicon",
+    "skills",
+    "scripts",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build",
+    "prepack": "pnpm build"
   },
   "keywords": [
     "ukrainian",
@@ -37,5 +43,20 @@
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
+  },
+  "author": "Mykyta Stelmashenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MykytaStel/ua-tts-text.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MykytaStel/ua-tts-text/issues"
+  },
+  "homepage": "https://github.com/MykytaStel/ua-tts-text#readme",
+  "bin": {
+    "ua-tts-text": "./scripts/cli.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -15,6 +15,7 @@ export * from './numbers.js';
 export * from './normalize.js';
 export * from './render.js';
 export * from './review.js';
+export * from './agent.js';
 export * from './stress.js';
 
 export interface PrepareOptions {
