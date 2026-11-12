@@ -16,6 +16,9 @@ export type EngineId =
   | 'piper-high'
   | 'elevenlabs-v4'
   | 'edge-tts'
+  | 'gemini-tts'
+  | 'cartesia'
+  | 'vosk-tts'
   | 'azure'
   | 'plain';
 
@@ -61,6 +64,9 @@ export const ENGINES: Readonly<Record<EngineId, EngineProfile>> = {
     note: 'Для неанглійської приймає IPA лише на eleven_v4 / v4_turbo; IPA-профіль ще не реалізовано.',
   },
   'edge-tts': { symbol: 'none', supportsStress: false, note: 'Наголоси не приймає.' },
+  'gemini-tts': { symbol: 'none', supportsStress: false, note: 'Наголоси не приймає; текст лише нормалізується.' },
+  cartesia: { symbol: 'none', supportsStress: false, note: 'Наголоси не приймає; текст лише нормалізується.' },
+  'vosk-tts': { symbol: 'none', supportsStress: false, note: 'Наголоси не приймає; текст лише нормалізується.' },
   azure: {
     symbol: 'none',
     supportsStress: false,
