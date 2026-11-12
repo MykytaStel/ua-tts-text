@@ -32,6 +32,10 @@ export interface ContextView {
   prev: string | null;
   /** Наступне слово або null у кінці частини. */
   next: string | null;
+  /** Слово перед попереднім («два великі міста»: для «міста» — «два»). */
+  prev2: string | null;
+  /** Слово після наступного. */
+  next2: string | null;
 }
 
 /** Джерело контекстних рішень для `stressify`. */
@@ -64,13 +68,19 @@ export function contextViews(text: string): Array<{ index: number; word: string;
   return words.map((current, i) => {
     const before = words[i - 1];
     const after = words[i + 1];
+    const before2 = words[i - 2];
+    const after2 = words[i + 2];
     const linked = (from: number, to: number) => !BREAK_RE.test(text.slice(from, to));
+    const prevLinked = before && linked(before.index + before.word.length, current.index);
+    const nextLinked = after && linked(current.index + current.word.length, after.index);
     return {
       index: current.index,
       word: current.word,
       view: {
-        prev: before && linked(before.index + before.word.length, current.index) ? plain(before.word) : null,
-        next: after && linked(current.index + current.word.length, after.index) ? plain(after.word) : null,
+        prev: prevLinked ? plain(before.word) : null,
+        next: nextLinked ? plain(after.word) : null,
+        prev2: prevLinked && before2 && linked(before2.index + before2.word.length, current.index) ? plain(before2.word) : null,
+        next2: nextLinked && after2 && linked(current.index + current.word.length, after2.index) ? plain(after2.word) : null,
       },
     };
   });
@@ -167,9 +177,9 @@ export class ContextRules implements ContextSource {
     if (part === '*') return () => true;
     if (part === 'first') return (view) => view.prev === null;
     if (part === 'last') return (view) => view.next === null;
-    const match = /^(prev|next)([:~])(.+)$/u.exec(part);
+    const match = /^(prev2|next2|prev|next)([:~])(.+)$/u.exec(part);
     if (!match) throw new Error(`context: ${where}: cannot read condition "${part}"`);
-    const side = match[1] as 'prev' | 'next';
+    const side = match[1] as 'prev' | 'next' | 'prev2' | 'next2';
     const values = this.#list(match[3]!, where);
     if (values.length === 0) throw new Error(`context: ${where}: empty list in "${part}"`);
     if (match[2] === ':') {

@@ -8,6 +8,9 @@
  * Золото лежить у evaluation/gold.tsv: текст із акутами на тих складах,
  * де наголос має стояти. Слова без акута вважаються такими, що не потребують
  * позначки (односкладові або нерозв'язані омоніми).
+ *
+ * Два акути в одному слові означають «обидва варіанти нормативні» — так
+ * записуються слова на кшталт «ро́ки́», де словники дозволяють обидва наголоси.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -35,16 +38,16 @@ function indexWords(text) {
   for (const match of text.matchAll(WORD_RE)) {
     const chars = [...match[0]];
     const stripped = [];
-    let position = null;
+    const positions = new Set();
     for (const char of chars) {
       if (char === ACUTE || char === '\u00b4') {
-        if (stripped.length > 0) position = stripped.length - 1;
+        if (stripped.length > 0) positions.add(stripped.length - 1);
         continue;
       }
       stripped.push(char);
     }
     const key = stripped.join('').toLowerCase().replace(/[\u2019\u02bc`]/gu, "'");
-    if (key) map.set(key, position);
+    if (key) map.set(key, positions.size ? positions : null);
   }
   return map;
 }
@@ -76,19 +79,21 @@ for (const row of rows) {
 
   for (const [word, expected] of golden) {
     const actual = produced.has(word) ? produced.get(word) : null;
+    const actualList = actual ? [...actual].sort((a, b) => a - b) : [];
     if (expected !== null) {
-      if (actual === expected) rowTp += 1;
-      else if (actual === null || actual === undefined) {
+      const accepted = actual !== null && actualList.some((position) => expected.has(position));
+      if (accepted) rowTp += 1;
+      else if (actualList.length === 0) {
         rowFn += 1;
-        errors.push({ id: row.id, word, expected: 'наголос', got: 'без наголосу' });
+        errors.push({ id: row.id, word, expected: `позиція ${[...expected].join('|')}`, got: 'без наголосу' });
       } else {
         rowFn += 1;
         rowFp += 1;
-        errors.push({ id: row.id, word, expected: `позиція ${expected}`, got: `позиція ${actual}` });
+        errors.push({ id: row.id, word, expected: `позиція ${[...expected].join('|')}`, got: `позиція ${actualList.join('|')}` });
       }
-    } else if (actual !== null && actual !== undefined) {
+    } else if (actualList.length > 0) {
       rowFp += 1;
-      errors.push({ id: row.id, word, expected: 'без наголосу', got: `позиція ${actual}` });
+      errors.push({ id: row.id, word, expected: 'без наголосу', got: `позиція ${actualList.join('|')}` });
     }
   }
 

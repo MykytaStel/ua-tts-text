@@ -13,9 +13,9 @@ describe('contextViews', () => {
   it('бачить сусідів лише в межах частини речення', () => {
     const views = contextViews('Замок на горі, а дорога веде — до села.');
     const of = (word: string) => views.find((item) => item.word === word)!.view;
-    expect(of('горі')).toEqual({ prev: 'на', next: null });
-    expect(of('дорога')).toEqual({ prev: 'а', next: 'веде' });
-    expect(of('до')).toEqual({ prev: null, next: 'села' });
+    expect(of('горі')).toMatchObject({ prev: 'на', next: null });
+    expect(of('дорога')).toMatchObject({ prev: 'а', next: 'веде' });
+    expect(of('до')).toMatchObject({ prev: null, next: 'села' });
     expect(of('Замок').prev).toBeNull();
   });
 
