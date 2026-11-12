@@ -92,6 +92,14 @@ describe('лексикон', () => {
   });
 });
 
+describe('контекст омонімів', () => {
+  it('повертає речення, у якому стоїть слово', () => {
+    const result = prepare('Замок стоїть на горі. Далі — поле.', { dictionary: dict });
+    const castle = result.homographs.find((h) => h.key === 'замок');
+    expect(castle?.context).toBe('Замок стоїть на горі');
+  });
+});
+
 describe('render', () => {
   it('підбирає символ під рушій', () => {
     expect(render('молоко', 'tts-uk', dict).text).toBe('молок+о');

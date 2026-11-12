@@ -52,6 +52,23 @@ export interface Homograph {
   key: string;
   /** Два прочитання з наголосом — людина або LLM обирає потрібне. */
   variants: [string, string];
+  /** Речення, у якому стоїть слово: без нього вибір робить навмання. */
+  context: string;
+}
+
+/** Речення навколо позиції — контекст для вибору прочитання. */
+function sentenceAt(text: string, index: number): string {
+  const boundary = /[.!?\n]/gu;
+  let start = 0;
+  for (const match of text.matchAll(boundary)) {
+    const end = match.index + match[0].length;
+    if (end <= index) start = end;
+    else break;
+  }
+  const rest = text.slice(index);
+  const tail = rest.search(/[.!?\n]/u);
+  const end = tail === -1 ? text.length : index + tail;
+  return text.slice(start, end).trim();
 }
 
 /** Омоніми в тексті: обидва варіанти наголосу, щоб було з чого вибирати. */
@@ -75,6 +92,7 @@ export function homographs(
       word,
       key,
       variants: [markWord(word, [hit.position], symbol), markWord(word, [hit.alternative], symbol)],
+      context: sentenceAt(text, match.index),
     });
   }
   return result;
