@@ -1,6 +1,6 @@
 {
   "name": "ua-tts-text",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Готує український текст до озвучки: числа, роки, скорочення, наголоси під конкретний рушій",
   "type": "module",
   "main": "./dist/index.js",
@@ -55,7 +55,8 @@
   },
   "homepage": "https://github.com/MykytaStel/ua-tts-text#readme",
   "bin": {
-    "ua-tts-text": "./scripts/cli.mjs"
+    "ua-tts-text": "./scripts/cli.mjs",
+    "ua-tts-text-fetch-dict": "./scripts/fetch-dict.mjs"
   },
   "publishConfig": {
     "access": "public"

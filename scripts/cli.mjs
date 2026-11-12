@@ -5,10 +5,10 @@
  *   node scripts/cli.mjs --engine tts-uk --dict data/dict.bin < script.txt
  *   node scripts/cli.mjs --engine piper-high --json < script.txt
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
 import { Lexicon, StressDictionary, createOpenAiAsker, lint, prepare, prepareMany } from '../dist/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -19,10 +19,31 @@ function arg(name, fallback) {
 }
 
 const engine = arg('engine', 'plain');
-const dictPath = path.resolve(here, '..', arg('dict', 'data/dict.bin'));
 const asJson = process.argv.includes('--json');
+const pkgRoot = path.resolve(here, '..');
+const home = process.env['UA_TTS_HOME'] || path.join(os.homedir(), '.local/share/ua-tts-text');
+
+/** Порядок: явний прапорець → змінна середовища → домашня тека → тека пакета. */
+function pickPath(explicit, envName, candidates) {
+  if (explicit) return path.resolve(explicit);
+  const fromEnv = process.env[envName];
+  if (fromEnv) return path.resolve(fromEnv);
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+const dictPath = pickPath(arg('dict', ''), 'UA_TTS_DICT', [
+  path.join(home, 'dict.bin'),
+  path.join(pkgRoot, 'data', 'dict.bin'),
+]);
+const lexiconPath = pickPath(arg('lexicon', ''), 'UA_TTS_LEXICON', [
+  path.join(home, 'names.tsv'),
+  path.join(pkgRoot, 'lexicon', 'names.tsv'),
+]);
+
 const decisionsArg = arg('decisions', '');
-const decisions = decisionsArg ? JSON.parse(readFileSync(path.resolve(here, '..', decisionsArg), 'utf8')) : {};
+const decisions = decisionsArg
+  ? JSON.parse(readFileSync(path.resolve(decisionsArg), 'utf8'))
+  : {};
 
 let input = '';
 if (process.stdin.isTTY) {
@@ -32,16 +53,22 @@ if (process.stdin.isTTY) {
 }
 
 if (!input.trim()) {
-  console.error('usage: cli.mjs --engine <id> [--dict data/dict.bin] [--json] < script.txt');
+  console.error('usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--decisions file] [--resolve] [--json] < script.txt');
   process.exit(2);
 }
 
 if (!existsSync(dictPath)) {
-  console.error(`немає словника: ${dictPath}\nспочатку виконай: node scripts/fetch-dict.mjs`);
+  console.error(
+    [
+      'немає словника наголосів.',
+      'виконай: npx ua-tts-text-fetch-dict',
+      'або вкажи шлях: --dict /шлях/до/dict.bin',
+      `(шукав у ${dictPath})`,
+    ].join('\n'),
+  );
   process.exit(2);
 }
 const dictionary = StressDictionary.load(dictPath);
-const lexiconPath = path.resolve(here, '..', arg('lexicon', 'lexicon/names.tsv'));
 const lexicon = existsSync(lexiconPath) ? Lexicon.loadTsv(lexiconPath) : undefined;
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
 const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';

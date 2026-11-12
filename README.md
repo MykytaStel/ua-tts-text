@@ -27,10 +27,11 @@
 
 ```bash
 npm i ua-tts-text
-node node_modules/ua-tts-text/scripts/fetch-dict.mjs   # 75 МБ словника, один раз
+npx ua-tts-text-fetch-dict    # 75 МБ словника, один раз → ~/.local/share/ua-tts-text/
 ```
 
-Далі CLI бере словник за типовим шляхом `data/dict.bin` усередині пакета.
+Далі CLI сам знаходить словник: `--dict` → `UA_TTS_DICT` → `~/.local/share/ua-tts-text/dict.bin`
+→ `data/dict.bin` усередині пакета. Перекрити теку можна `UA_TTS_HOME`.
 
 Для розробки — з репозиторію:
 
@@ -193,8 +194,8 @@ node scripts/cli.mjs --engine piper-high --json < script.txt
 ## Словник
 
 ```bash
-curl -o data/stress.txt https://raw.githubusercontent.com/lang-uk/ukrainian-word-stress-dictionary/master/stress.txt
-node scripts/build-dict.mjs   # → data/dict.bin, ~75 МБ
+npx ua-tts-text-fetch-dict          # у ~/.local/share/ua-tts-text/dict.bin
+node scripts/fetch-dict.mjs --local # у ./data/dict.bin (репозиторій)
 ```
 
 Словник наголосів — [lang-uk/ukrainian-word-stress-dictionary](https://github.com/lang-uk/ukrainian-word-stress-dictionary)
