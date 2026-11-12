@@ -47,3 +47,5 @@ jobs:
       - run: pnpm test
       - name: Бенчмарк на corpus
         run: node scripts/bench.mjs
+      - name: Оцінка на золотому наборі
+        run: node scripts/eval.mjs
