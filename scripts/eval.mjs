@@ -20,7 +20,10 @@ const root = path.join(here, '..');
 const verbose = process.argv.includes('--verbose');
 
 const dict = StressDictionary.load(path.join(root, 'data', 'dict.bin'));
-const lexicon = Lexicon.loadTsv(path.join(root, 'lexicon', 'names.tsv'));
+const lexicon = Lexicon.loadAll([
+  path.join(root, 'lexicon', 'common.tsv'),
+  path.join(root, 'lexicon', 'names.tsv'),
+]);
 
 const WORD_RE = /[\p{L}][\p{L}\u2019\u02bc'\u0301+\-]*/gu;
 

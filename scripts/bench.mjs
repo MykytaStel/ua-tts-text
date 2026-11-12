@@ -9,10 +9,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SCRIPTS } from '../corpus/scripts.mjs';
-import { StressDictionary, lint, prepare } from '../dist/index.js';
+import { Lexicon, StressDictionary, lint, prepare } from '../dist/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dict = StressDictionary.load(path.join(here, '..', 'data', 'dict.bin'));
+const lexicon = Lexicon.loadAll([
+  path.join(here, '..', 'lexicon', 'common.tsv'),
+  path.join(here, '..', 'lexicon', 'names.tsv'),
+]);
 
 const decisionsPath = path.join(here, '..', 'corpus', 'decisions.json');
 const decisions = existsSync(decisionsPath) ? JSON.parse(readFileSync(decisionsPath, 'utf8')) : {};
@@ -49,6 +53,7 @@ for (const script of SCRIPTS) {
   for (const variant of VARIANTS) {
     const result = prepare(script.text, {
       dictionary: dict,
+      lexicon,
       engine: variant.engine,
       ...(variant.stress ? { stress: variant.stress } : {}),
     });

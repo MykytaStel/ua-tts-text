@@ -69,7 +69,8 @@ if (!existsSync(dictPath)) {
   process.exit(2);
 }
 const dictionary = StressDictionary.load(dictPath);
-const lexicon = existsSync(lexiconPath) ? Lexicon.loadTsv(lexiconPath) : undefined;
+// Загальні слова (де словник дає рідкісний варіант) + власні назви.
+const lexicon = Lexicon.loadAll([path.join(path.dirname(lexiconPath), 'common.tsv'), lexiconPath]);
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
 const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';
 if (useResolve && !apiKey) {

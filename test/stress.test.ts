@@ -86,6 +86,15 @@ describeDict('лексикон', () => {
     expect(result.ambiguous).toEqual([]);
   });
 
+  it('loadAll зливає загальні слова й назви', () => {
+    const merged = Lexicon.loadAll([
+      new URL('../lexicon/common.tsv', import.meta.url).pathname,
+      new URL('../lexicon/names.tsv', import.meta.url).pathname,
+    ]);
+    expect(merged.lookup('повість')?.position).toBe(1);
+    expect(merged.lookup('київ')?.position).toBe(1);
+  });
+
   it('ставить два наголоси у складній назві', () => {
     const lexicon = Lexicon.loadTsv(new URL('../lexicon/names.tsv', import.meta.url).pathname);
     const result = stressify('Кам’янець-Подільський', dict, { symbol: 'plus-before', lexicon });

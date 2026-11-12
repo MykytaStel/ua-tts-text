@@ -5,7 +5,7 @@
  * Формат TSV: слово <TAB> наголошене <TAB> категорія <TAB> джерело
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { StressHit } from './dict.js';
 
 const ACUTE = '\u0301';
@@ -41,6 +41,18 @@ export interface LexiconEntry {
 export class Lexicon implements StressSource {
   readonly #entries = new Map<string, StressHit>();
   #count = 0;
+
+  /** Завантажує кілька файлів; пізніші перекривають ранні. */
+  static loadAll(files: readonly string[]): Lexicon {
+    const result = new Lexicon();
+    for (const file of files) {
+      if (!existsSync(file)) continue;
+      const part = Lexicon.loadTsv(file);
+      for (const [key, hit] of part.#entries) result.#entries.set(key, hit);
+      result.#count += part.#count;
+    }
+    return result;
+  }
 
   static loadTsv(file: string): Lexicon {
     const lexicon = new Lexicon();
