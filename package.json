@@ -1,6 +1,6 @@
 {
   "name": "ua-tts-text",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Готує український текст до озвучки: числа, роки, скорочення, наголоси під конкретний рушій",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,7 +18,8 @@
     "scripts",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "CONTRIBUTING.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
