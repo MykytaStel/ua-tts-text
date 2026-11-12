@@ -126,6 +126,17 @@ const final = prepare(text, { dictionary, engine: 'tts-uk', stress: { decisions 
 рушія вибрати, як розв'язувати омоніми через `decisions` і чого не робити
 (наприклад, не намагатися полагодити `piper-high` позначками).
 
+Перевірено встановленням у чистому середовищі:
+
+```bash
+npx skills add MykytaStel/ua-tts-text
+# ✓ ./.agents/skills/ua-voiceover-prep
+#   universal: Amp, Antigravity, Cline, Codex +19 more
+#   symlinked: Claude Code, Eve
+```
+
+Тобто один файл справді працює в трьох агентах — це не припущення, а результат установки.
+
 ## Інтеграція у Content Factory
 
 Гілка `feat/ua-tts-text` у репозиторії фабрики (окремий worktree, `main` не зачеплений):
