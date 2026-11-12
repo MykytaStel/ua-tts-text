@@ -4,6 +4,7 @@
 у форматі конкретного рушія TTS.
 
 [![ci](https://github.com/MykytaStel/ua-tts-text/actions/workflows/ci.yml/badge.svg)](https://github.com/MykytaStel/ua-tts-text/actions/workflows/ci.yml)
+[![skills.sh](https://img.shields.io/badge/skills.sh-ua--voiceover--prep-blue)](https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep)
 
 Проблема, яку розв'язує: більшість рушіїв читають «1675» якось собі, «ст.» — як
 «ст», а наголоси або не розуміють зовсім, або розуміють кожен по-своєму.
@@ -37,6 +38,8 @@ node scripts/fetch-dict.mjs   # 75 МБ словника, один раз
 ```bash
 npx skills add MykytaStel/ua-tts-text
 ```
+
+Скіл уже в каталозі: [skills.sh/mykytastel/ua-tts-text](https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep).
 
 ## Використання
 
