@@ -26,6 +26,7 @@ const target = process.argv[3] ?? path.join(here, '..', 'data', 'dict.bin');
 
 const ACUTE = '\u0301';
 const ACUTE_ALT = '\u00b4';
+const VOWELS = new Set([...'аеєиіїоуяю']);
 const SUFFIX_LENGTH = 5;
 const MIN_SUFFIX_SUPPORT = 3;
 
@@ -36,6 +37,7 @@ const lines = raw.split('\n');
 const entries = new Map();
 let skippedPhrases = 0;
 let skippedUnstressed = 0;
+let skippedInvalidStress = 0;
 let conflicts = 0;
 
 for (const line of lines) {
@@ -59,11 +61,22 @@ for (const line of lines) {
     skippedUnstressed += 1;
     continue;
   }
+  if (
+    positions.length > 2 ||
+    new Set(positions).size !== positions.length ||
+    positions.some((position) => !VOWELS.has(stripped[position]?.toLowerCase() ?? ''))
+  ) {
+    skippedInvalidStress += 1;
+    continue;
+  }
 
-  const key = stripped.join('').toLowerCase().replace(/[\u2019\u02bc`\u00b4]/g, "'");
+  const key = stripped
+    .join('')
+    .toLowerCase()
+    .replace(/[\u2019\u02bc`\u00b4]/g, "'");
   if (!key) continue;
 
-  const unique = [...new Set(positions)].sort((a, b) => a - b).slice(0, 2);
+  const unique = [...positions].sort((a, b) => a - b);
   const dual = unique.length > 1 && key.includes('-');
   const existing = entries.get(key);
   if (!existing) {
@@ -147,6 +160,7 @@ console.log(
       keys: count,
       skippedPhrases,
       skippedUnstressed,
+      skippedInvalidStress,
       conflicts,
       bytes: out.length,
       dualStress: [...entries.values()].filter((entry) => entry.dual).length,

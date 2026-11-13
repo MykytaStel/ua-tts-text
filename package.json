@@ -1,6 +1,6 @@
 {
   "name": "ua-tts-text",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Готує український текст до озвучки: числа, роки, скорочення, наголоси під конкретний рушій",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,9 +13,13 @@
   },
   "files": [
     "dist",
+    "src",
     "lexicon",
     "skills",
-    "scripts",
+    "scripts/cli.mjs",
+    "scripts/fetch-dict.mjs",
+    "scripts/build-dict.mjs",
+    "scripts/dictionary-source.json",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -23,12 +27,13 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/audit-review.check.mjs scripts/evaluation.check.mjs scripts/dictionary.check.mjs && node scripts/normalization-eval.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "pnpm build && pnpm typecheck && pnpm test && node scripts/package-smoke.mjs",
     "prepack": "pnpm build",
-    "eval": "node scripts/eval.mjs"
+    "eval": "node scripts/eval.mjs",
+    "eval:normalization": "node scripts/normalization-eval.mjs"
   },
   "keywords": [
     "ukrainian",
@@ -40,7 +45,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

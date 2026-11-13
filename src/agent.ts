@@ -30,7 +30,10 @@ export function reviewPrompt(homographs: readonly Homograph[]): string {
 
 /** Розбирає відповідь моделі. Кидає помилку, якщо це не JSON-об'єкт потрібної форми. */
 export function parseDecisions(raw: string): Decisions {
-  const trimmed = raw.trim().replace(/^```(?:json)?\s*/u, '').replace(/\s*```$/u, '');
+  const trimmed = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/u, '')
+    .replace(/\s*```$/u, '');
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);

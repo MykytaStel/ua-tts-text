@@ -1,45 +1,40 @@
 #!/usr/bin/env node
-/**
- * Завантажує словник lang-uk і збирає з нього бінарний dict.bin.
- *
- *   npx ua-tts-text-fetch-dict          # → ~/.local/share/ua-tts-text/dict.bin
- *   node scripts/fetch-dict.mjs --local # → ./data/dict.bin (для репозиторію)
- *
- * UA_TTS_HOME перекриває типову теку.
- */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+/** Reproducible dictionary install. Never replaces local TSV overrides. */
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
-
-const URL_STRESS =
-  'https://raw.githubusercontent.com/lang-uk/ukrainian-word-stress-dictionary/master/stress.txt';
-
-// У репозиторії (є .git) словник живе в data/; у встановленому пакеті — у дома.
-const isRepo = existsSync(path.join(root, '.git'));
+const pin = JSON.parse(readFileSync(path.join(here, 'dictionary-source.json'), 'utf8'));
+if (pin.binaryFormat !== 3) throw new Error(`unsupported dictionary binary format: ${pin.binaryFormat}`);
 const home = process.env['UA_TTS_HOME'] || path.join(os.homedir(), '.local/share/ua-tts-text');
-const targetDir = process.argv.includes('--local') || isRepo ? path.join(root, 'data') : home;
-
+const targetDir = process.argv.includes('--local') || existsSync(path.join(root, '.git')) ? path.join(root, 'data') : home;
 mkdirSync(targetDir, { recursive: true });
-const source = path.join(targetDir, 'stress.txt');
+const token = randomUUID();
+const source = path.join(targetDir, `.stress-${token}.txt`);
+const temporary = path.join(targetDir, `.dict-${token}.bin`);
 const target = path.join(targetDir, 'dict.bin');
-
-console.log(`завантажую словник (~70 МБ) → ${target}`);
-const response = await fetch(URL_STRESS);
-if (!response.ok) throw new Error(`HTTP ${response.status} для ${URL_STRESS}`);
-const bytes = Buffer.from(await response.arrayBuffer());
-writeFileSync(source, bytes);
-
-const result = spawnSync(process.execPath, [path.join(here, 'build-dict.mjs'), source, target], {
-  stdio: 'inherit',
-});
-
-// Сирий текст (70 МБ) після збірки не потрібен.
-if (result.status === 0) rmSync(source, { force: true });
-
-if (result.status !== 0) process.exit(result.status ?? 1);
-console.log(`готово: ${target}`);
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+try {
+  const response = await fetch(pin.url, { signal: AbortSignal.timeout(120_000) });
+  if (!response.ok) throw new Error(`dictionary HTTP ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (sha256(bytes) !== pin.sha256) throw new Error('dictionary source SHA-256 mismatch; installed dictionary unchanged');
+  writeFileSync(source, bytes);
+  const result = spawnSync(process.execPath, [path.join(here, 'build-dict.mjs'), source, temporary], { stdio: 'inherit' });
+  if (result.status !== 0) throw new Error(`dictionary build failed: ${result.status}`);
+  const binaryHash = sha256(readFileSync(temporary));
+  if (existsSync(target)) {
+    const oldHash = sha256(readFileSync(target));
+    if (oldHash !== binaryHash) copyFileSync(target, path.join(targetDir, `dict.${oldHash}.bin`));
+  }
+  renameSync(temporary, target);
+  writeFileSync(path.join(targetDir, 'dict.manifest.json'), JSON.stringify({ ...pin, binarySha256: binaryHash }, null, 2));
+  console.log(`готово: ${target} (${binaryHash})`);
+} finally {
+  rmSync(source, { force: true });
+  rmSync(temporary, { force: true });
+}

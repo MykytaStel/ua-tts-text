@@ -9,6 +9,9 @@ jobs:
   unit:
     name: Тести без словника
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -16,12 +19,14 @@ jobs:
           version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Перевірити зібраний npm-пакет після встановлення
+        run: node scripts/package-smoke.mjs
 
   with-dictionary:
     name: Тести зі словником
@@ -41,11 +46,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/dict.bin
-          key: dict-${{ hashFiles('scripts/build-dict.mjs', 'scripts/fetch-dict.mjs') }}
+          key: dict-v3-${{ hashFiles('src/dict.ts', 'scripts/build-dict.mjs', 'scripts/fetch-dict.mjs', 'scripts/dictionary-source.json') }}
       - name: Зібрати словник, якщо немає в кеші
         run: test -f data/dict.bin || node scripts/fetch-dict.mjs
+      - name: Перевірити індекс і наголоси словника
+        run: node scripts/validate-dict.mjs
       - run: pnpm test
       - name: Бенчмарк на corpus
         run: node scripts/bench.mjs
       - name: Оцінка на золотому наборі
-        run: node scripts/eval.mjs
+        run: node scripts/eval.mjs --strict

@@ -7,6 +7,7 @@ import { normalizeWord, type StressDictionary } from './dict.js';
 import { markWord, type StressSymbol } from './stress.js';
 import type { StressSource } from './lexicon.js';
 import { contextViews, type ContextSource } from './context.js';
+import { hasManualStress, tokenizeWords } from './tokenize.js';
 
 export type IssueKind = 'digits' | 'brackets' | 'abbreviation' | 'latin' | 'spacing' | 'foreign';
 
@@ -49,11 +50,11 @@ const CHECKS: ReadonlyArray<{ kind: IssueKind; pattern: RegExp; hint: string }> 
   },
 ];
 
-const WORD_RE = /[\p{L}][\p{L}\u2019\u02bc'`+\-]*/gu;
-
 export interface Homograph {
   /** Слово, як воно стоїть у тексті. */
   word: string;
+  /** UTF-16 offset in the normalized input. */
+  offset?: number;
   /** Ключ для рішень (нижній регістр, звичайний апостроф). */
   key: string;
   /** Два прочитання з наголосом — людина або LLM обирає потрібне. */
@@ -86,25 +87,24 @@ export function homographs(
   /** Омоніми, які розв'язало контекстне правило, у список не потрапляють. */
   context?: ContextSource,
 ): Homograph[] {
-  const seen = new Set<string>();
   const result: Homograph[] = [];
   const views = new Map<number, ReturnType<typeof contextViews>[number]['view']>();
   if (context) for (const item of contextViews(text)) views.set(item.index, item.view);
-  for (const match of text.matchAll(WORD_RE)) {
-    const word = match[0];
-    if (word.includes('+')) continue;
+  for (const match of tokenizeWords(text)) {
+    const word = match.text;
+    if (hasManualStress(word)) continue;
     const key = normalizeWord(word).replace(/-+$/u, '');
-    if (key.length < 3 || seen.has(key)) continue;
-    const view = views.get(match.index);
+    if (key.length < 3) continue;
+    const view = views.get(match.start);
     if (context && view && context.resolve(key, view)) continue;
     const hit = lexicon?.lookup(key) ?? dictionary.lookup(key);
     if (!hit || hit.alternative === null || hit.dual) continue;
-    seen.add(key);
     result.push({
       word,
+      offset: match.start,
       key,
       variants: [markWord(word, [hit.position], symbol), markWord(word, [hit.alternative], symbol)],
-      context: sentenceAt(text, match.index),
+      context: sentenceAt(text, match.start),
     });
   }
   return result;

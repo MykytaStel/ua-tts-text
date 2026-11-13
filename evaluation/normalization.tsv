@@ -1,0 +1,14 @@
+# id	source text	expected TTS text	tag
+year-988	988 року.	дев'ятсот вісімдесят восьмого року.	year
+quantity-years	За 4 роки.	За чотири роки.	year
+unit-genitive	До 5 км.	До п'яти кілометрів.	unit
+fraction-unit	1,5 кг.	одна ціла п'ять десятих кілограма.	unit
+range-singular	0–1 м.	від нуля до одного метра.	range
+valid-date	12.11.2026.	дванадцятого листопада дві тисячі двадцять шостого року.	date
+invalid-date	31.02.2026.	31.02.2026.	date
+version	Версія 0.13.0.	Версія 0.13.0.	identifier
+phone	Телефон +380671234567.	Телефон +380671234567.	identifier
+email	Лист на test@example.org.	Лист на test@example.org.	identifier
+url	Сайт https://example.org/page.	Сайт https://example.org/page.	identifier
+feminine-genitive	До 1 грн.	До однієї гривні.	unit
+range-feminine	0–1 грн.	від нуля до однієї гривні.	range

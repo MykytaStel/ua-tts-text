@@ -81,12 +81,7 @@ export interface RenderResult extends StressResult {
 }
 
 /** Готує текст під конкретний рушій і повертає попередження про його межі. */
-export function render(
-  text: string,
-  engine: EngineId,
-  dictionary: StressDictionary,
-  options: StressOptions = {},
-): RenderResult {
+export function render(text: string, engine: EngineId, dictionary: StressDictionary, options: StressOptions = {}): RenderResult {
   const profile = ENGINES[engine];
   if (!profile) throw new Error(`render: unknown engine "${String(engine)}"`);
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.13.0 — 2026-11-12
+
+- Числова нормалізація захищає версії, URL, email, телефонні рядки й невалідні дати; родовий числівник узгоджується з жіночими одиницями (`до однієї гривні`).
+- Спільний tokenizer використовується в плануванні, аудиті й evaluation; scorer перевіряє кожне входження, зайві/відсутні слова й неправильні/додаткові наголоси окремо.
+- TSV-лексикон відхиляє акут на приголосній, дублікати та невідповідні форми; `Lexicon.explain()` показує категорію й джерело. Додано опційний `stress.trace` по входженнях.
+- Маніфест хешує runtime-модулі разом із ресурсами, тому зміни логіки скидають кеш синтезу навіть до bump версії.
+- `prepareMany` застосовує ручні рішення `paragraph:offset` навіть без LLM; `PrepareResult` звітує про окремі нерозв'язані входження. Лексикон має пріоритет над загальними контекстними правилами.
+- Додано точні fixtures нормалізації й документацію holdout/сліпого аудіювання; останній регресійний прогін: 28/28 рядків зі збереженою послідовністю слів, 100,0% precision / 98,5% recall. Це не незалежна оцінка якості.
+- Shared `loadResources()` for CLI and integrations: bundled defaults, local overrides,
+  immutable resource snapshots, source/file manifest and content fingerprint; refresh on file changes.
+- `prepareMany().decisions` now uses occurrence IDs (`paragraph:UTF16Offset`), not words.
+  Each repeated homograph can receive a different decision. Unknown-word LLM guessing
+  now requires `resolveUnknown: true`; long prompts are split, and callers can keep failed
+  batches unresolved instead of aborting. Explicit caller choices remain authoritative.
+- Manual acute/plus-before stress is converted for the target engine; unsupported
+  engines receive clean text. Resolver requests support cancellation.
+- Dictionary downloads pin the source commit and SHA-256, install atomically and
+  retain the previous binary by content hash; local TSV files are never overwritten.
+- Audit exports every unresolved occurrence with sentence context. Evaluation counts
+  repeated words separately, requires all expected marks, and labels the existing gold corpus as regression data.
+- Dictionary building rejects stress marks on consonants; malformed rows in existing binaries
+  are ignored and reported instead of reaching TTS as confident predictions.
+- Project lexicons accept project/canonical-name/status metadata; `draft` and `rejected`
+  entries remain reviewable but do not affect output. The shared tokenizer now covers stress,
+  audit, evaluation and duration planning.
+- CI validates the package installed from its npm archive and runs data checks without the
+  large dictionary. The stricter scorer reports 100.0% precision / 97.0% recall on the
+  28-row regression corpus; this is not held-out or audio evidence.
+
 ## 0.12.0 — 2026-11-12
 
 - `scripts/audit.mjs` — аудит реальних текстів: частка наголошених слів по файлах

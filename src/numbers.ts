@@ -24,31 +24,9 @@ const TEENS = [
   "дев'ятнадцять",
 ];
 
-const TENS = [
-  '',
-  '',
-  'двадцять',
-  'тридцять',
-  'сорок',
-  "п'ятдесят",
-  'шістдесят',
-  'сімдесят',
-  'вісімдесят',
-  "дев'яносто",
-];
+const TENS = ['', '', 'двадцять', 'тридцять', 'сорок', "п'ятдесят", 'шістдесят', 'сімдесят', 'вісімдесят', "дев'яносто"];
 
-const HUNDREDS = [
-  '',
-  'сто',
-  'двісті',
-  'триста',
-  'чотириста',
-  "п'ятсот",
-  'шістсот',
-  'сімсот',
-  'вісімсот',
-  "дев'ятсот",
-];
+const HUNDREDS = ['', 'сто', 'двісті', 'триста', 'чотириста', "п'ятсот", 'шістсот', 'сімсот', 'вісімсот', "дев'ятсот"];
 
 interface Scale {
   one: string;
@@ -130,18 +108,7 @@ const ORD_TEENS = [
   'вісімнадцятий',
   "дев'ятнадцятий",
 ];
-const ORD_TENS = [
-  '',
-  '',
-  'двадцятий',
-  'тридцятий',
-  'сороковий',
-  "п'ятдесятий",
-  'шістдесятий',
-  'сімдесятий',
-  'вісімдесятий',
-  "дев'яностий",
-];
+const ORD_TENS = ['', '', 'двадцятий', 'тридцятий', 'сороковий', "п'ятдесятий", 'шістдесятий', 'сімдесятий', 'вісімдесятий', "дев'яностий"];
 const ORD_HUNDREDS = [
   '',
   'сотий',
@@ -199,8 +166,7 @@ export function ordinal(value: number): string {
     return `${cardinal(thousands, 'f').replace(/ одна$/, '')}тисячний`;
   }
 
-  const prefix =
-    thousands === 1 ? 'тисяча' : `${cardinal(thousands, 'f')} ${pluralForm(thousands, ['тисяча', 'тисячі', 'тисяч'])}`;
+  const prefix = thousands === 1 ? 'тисяча' : `${cardinal(thousands, 'f')} ${pluralForm(thousands, ['тисяча', 'тисячі', 'тисяч'])}`;
   return `${prefix} ${ordUnder1000(rest)}`;
 }
 
@@ -251,32 +217,10 @@ const GEN_TEENS = [
   'вісімнадцяти',
   "дев'ятнадцяти",
 ];
-const GEN_TENS = [
-  '',
-  '',
-  'двадцяти',
-  'тридцяти',
-  'сорока',
-  "п'ятдесяти",
-  'шістдесяти',
-  'сімдесяти',
-  'вісімдесяти',
-  "дев'яноста",
-];
-const GEN_HUNDREDS = [
-  '',
-  'ста',
-  'двохсот',
-  'трьохсот',
-  'чотирьохсот',
-  "п'ятисот",
-  'шестисот',
-  'семисот',
-  'восьмисот',
-  "дев'ятисот",
-];
+const GEN_TENS = ['', '', 'двадцяти', 'тридцяти', 'сорока', "п'ятдесяти", 'шістдесяти', 'сімдесяти', 'вісімдесяти', "дев'яноста"];
+const GEN_HUNDREDS = ['', 'ста', 'двохсот', 'трьохсот', 'чотирьохсот', "п'ятисот", 'шестисот', 'семисот', 'восьмисот', "дев'ятисот"];
 
-function genUnder1000(n: number): string {
+function genUnder1000(n: number, gender: Gender = 'm'): string {
   const out: string[] = [];
   const hundreds = Math.floor(n / 100);
   const rest = n % 100;
@@ -287,17 +231,17 @@ function genUnder1000(n: number): string {
     const tens = Math.floor(rest / 10);
     const ones = rest % 10;
     if (tens > 0) out.push(GEN_TENS[tens]!);
-    if (ones > 0) out.push(GEN_ONES[ones]!);
+    if (ones > 0) out.push(ones === 1 && gender === 'f' ? 'однієї' : GEN_ONES[ones]!);
   }
   return out.join(' ');
 }
 
 /** Родовий відмінок: «від 5 до 7» → «від п'яти до семи». */
-export function genitiveCardinal(value: number): string {
+export function genitiveCardinal(value: number, gender: Gender = 'm'): string {
   const n = Math.trunc(value);
   if (n < 0) throw new RangeError('genitiveCardinal: negative numbers are not supported');
   if (n === 0) return 'нуля';
-  if (n < 1000) return genUnder1000(n);
+  if (n < 1000) return genUnder1000(n, gender);
 
   const thousands = Math.floor(n / 1000);
   const rest = n % 1000;
@@ -306,9 +250,9 @@ export function genitiveCardinal(value: number): string {
   if (thousands === 1) {
     parts.push('тисячі');
   } else if (thousands > 1) {
-    parts.push(`${genUnder1000(thousands)} ${pluralForm(thousands, ['тисячі', 'тисяч', 'тисяч'])}`);
+    parts.push(`${genUnder1000(thousands, 'f')} ${pluralForm(thousands, ['тисячі', 'тисяч', 'тисяч'])}`);
   }
-  if (rest > 0) parts.push(genUnder1000(rest));
+  if (rest > 0) parts.push(genUnder1000(rest, gender));
   return parts.join(' ');
 }
 

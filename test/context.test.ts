@@ -32,27 +32,31 @@ describe('ContextRules', () => {
       'роки\tро́ки\tprev:@few\tтест',
       'роки\tроки́\t*\tтест',
       'нічого\tні́чого\tnext~ти|тися\tтест',
-      'тому\tтому́\tfirst\tтест',
+      'тому\tтому́\tnext:що\tтест',
       'дорогу\tдоро́гу\tprev:на|через & last\tтест',
     ].join('\n'),
   );
 
   it('перше правило, що спрацювало, перемагає; «*» — типове', () => {
-    expect(rules.resolve('роки', { prev: 'три', next: null })).toEqual([1]);
-    expect(rules.resolve('роки', { prev: 'ці', next: null })).toEqual([3]);
+    expect(rules.resolve('роки', { prev2: null, next2: null, prev: 'три', next: null })).toEqual([1]);
+    expect(rules.resolve('роки', { prev2: null, next2: null, prev: 'ці', next: null })).toEqual([3]);
   });
 
   it('розуміє суфікси, початок і кінець частини, поєднання умов', () => {
-    expect(rules.resolve('нічого', { prev: null, next: 'робити' })).toEqual([1]);
-    expect(rules.resolve('нічого', { prev: null, next: 'не' })).toBeNull();
-    expect(rules.resolve('тому', { prev: null, next: 'вона' })).toEqual([3]);
-    expect(rules.resolve('тому', { prev: 'першому', next: null })).toBeNull();
-    expect(rules.resolve('дорогу', { prev: 'на', next: null })).toEqual([3]);
-    expect(rules.resolve('дорогу', { prev: 'на', next: 'машину' })).toBeNull();
+    expect(rules.resolve('нічого', { prev2: null, next2: null, prev: null, next: 'робити' })).toEqual([1]);
+    expect(rules.resolve('нічого', { prev2: null, next2: null, prev: null, next: 'не' })).toBeNull();
+    expect(rules.resolve('тому', { prev2: null, next2: null, prev: null, next: 'що' })).toEqual([3]);
+    expect(rules.resolve('тому', { prev2: null, next2: null, prev: null, next: 'чоловікові' })).toBeNull();
+    expect(rules.resolve('тому', { prev2: null, next2: null, prev: 'першому', next: null })).toBeNull();
+    expect(rules.resolve('дорогу', { prev2: null, next2: null, prev: 'на', next: null })).toEqual([3]);
+    expect(rules.resolve('дорогу', { prev2: null, next2: null, prev: 'на', next: 'машину' })).toBeNull();
   });
 
   it('пояснює, яке правило спрацювало', () => {
-    expect(rules.explain('роки', { prev: 'два', next: null })).toMatchObject({ condition: 'prev:@few', source: 'тест' });
+    expect(rules.explain('роки', { prev2: null, next2: null, prev: 'два', next: null })).toMatchObject({
+      condition: 'prev:@few',
+      source: 'тест',
+    });
     expect(rules.has('роки')).toBe(true);
     expect(rules.has('замок')).toBe(false);
     expect(rules.size).toBe(5);
@@ -98,12 +102,22 @@ describeDict('контекст у stressify і prepare', () => {
     const result = say('Замок стоїть на горі.');
     expect(result.homographs.map((item) => item.key)).toEqual(['замок']);
     expect(result.contextual).toBe(1);
+    expect(result.ambiguousOccurrences).toEqual([{ word: 'Замок', offset: 0 }]);
+  });
+
+  it('does not guess the pronoun reading from sentence-initial position alone', () => {
+    const result = say('Тому чоловікові дали листа.');
+    expect(result.ambiguousOccurrences.map(({ word }) => word.toLowerCase())).toEqual(['тому']);
+    expect(result.text).toMatch(/^Тому(?:\s|$)/u);
   });
 
   it('без правила слово лишається омонімом, а не вгадується', () => {
     const result = say('У першому тому є карта.');
     expect(result.text).toContain('тому є');
     expect(result.ambiguous).toContain('тому');
+    expect(prepare('Тому чоловікові дали листа.', { dictionary: dict, lexicon, context, engine: 'piper-medium' }).ambiguous).toContain(
+      'Тому',
+    );
   });
 
   it('явне рішення сильніше за правило', () => {

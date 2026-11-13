@@ -1,12 +1,426 @@
 {
-  "generatedAt": "2026-11-12T18:56:39.993Z",
+  "resources": {
+    "version": "0.13.0",
+    "files": [
+      {
+        "path": "package.json",
+        "sha256": "893d3ba29b6c39a31921bc81c93d26046b4d2851013aa72ab97e9fd23ced767a"
+      },
+      {
+        "path": "data/dict.bin",
+        "sha256": "3169138b0399d5f060a5957dd479ca38c6e74b393608e473b89784863ffcbc83"
+      },
+      {
+        "path": "lexicon/common.tsv",
+        "sha256": "06d020a369cf80a57ddb4ab10e3250122a7cbdedf673e430ec19b3f28f804d03"
+      },
+      {
+        "path": "lexicon/names.tsv",
+        "sha256": "a4f8f43ae15ee25bcc8581c9d72ea04ec365395ff42eddddce52ed8c58400ed2"
+      },
+      {
+        "path": "lexicon/context.tsv",
+        "sha256": "d3b9000c3503d3f3727c6657584a99537159a93ddb3834a6eef938a9375f49b9"
+      },
+      {
+        "path": "dist/agent.d.ts",
+        "sha256": "383eaf78c1fa36ea0b9447b15a8bf388e2d8be203c479fe6eabdfc4deca0b252"
+      },
+      {
+        "path": "dist/agent.js",
+        "sha256": "cc633b5aaa567dbbad991db1a0b2b71e539c539cede2ef17fc3300910e59de8f"
+      },
+      {
+        "path": "dist/context.d.ts",
+        "sha256": "30a4691e2d6836a7d197e84f63c9c6fe6572259bbe19fa9927bf83691948779d"
+      },
+      {
+        "path": "dist/context.js",
+        "sha256": "95e0202503ee301cb99989a7b7ae6e6b687fdf3c877c4546fd980b87ae395e83"
+      },
+      {
+        "path": "dist/dict.d.ts",
+        "sha256": "62e3544b435f8cb584757974bd9df45619563f5ffcdeced0186dd8d9d4f3cf28"
+      },
+      {
+        "path": "dist/dict.js",
+        "sha256": "173c032ce2f3f647780cff1d1cd6d1ddf8eef7203678c2e8f68593eaa8adc7f7"
+      },
+      {
+        "path": "dist/fallback.d.ts",
+        "sha256": "c55b1a370713b4f27217172418776381564f35c91c9b44e28d20d48a9a98d998"
+      },
+      {
+        "path": "dist/fallback.js",
+        "sha256": "fe6ccf0acad1154746fe508f0ab9d05a86d1ff5df37e528d1b104842008237f1"
+      },
+      {
+        "path": "dist/index.d.ts",
+        "sha256": "5eab5a2adc1612a09c288adbcb0977df22f25c4ce030f79cad163d0c27ca7486"
+      },
+      {
+        "path": "dist/index.js",
+        "sha256": "d2c1991acb0062a8a285758b142b52e777547d2d10b9e16ec3d54b70d4cd3693"
+      },
+      {
+        "path": "dist/lexicon.d.ts",
+        "sha256": "8ca3a7cae30b1e48c49b69712ba1e0abe2b8dd19cb5f2118c677ac3a8b186176"
+      },
+      {
+        "path": "dist/lexicon.js",
+        "sha256": "22b0fd37aebcbf5475bb2211b9d49105b9c79fa3e87427d77e62bc735c89293c"
+      },
+      {
+        "path": "dist/normalize.d.ts",
+        "sha256": "0fa32724fc3dc9aee7f8d0dd1378b78d7687f7f228469eefec16f7847733e988"
+      },
+      {
+        "path": "dist/normalize.js",
+        "sha256": "078b50561e905c9d61dbe199ebc89f0f3ccedd5cfe257fbf5a8e5323c9443edc"
+      },
+      {
+        "path": "dist/numbers.d.ts",
+        "sha256": "2bba288eefac2d1a9ba8afd89ae58a6f59145fda0ade8dc4b0362a6babe060c0"
+      },
+      {
+        "path": "dist/numbers.js",
+        "sha256": "c443c1d865a896e6de27991178ca05bcc5d1fb6ed64febc6c2e4e7349747e099"
+      },
+      {
+        "path": "dist/plan.d.ts",
+        "sha256": "5a326fb7d9619ba377cdab500ece775ca6b270af24cfeafab304b9cba0bb9ad6"
+      },
+      {
+        "path": "dist/plan.js",
+        "sha256": "46a89e67a96677bd6507194b5f1254daff0ebde02a3c5cd65f67d94667717358"
+      },
+      {
+        "path": "dist/render.d.ts",
+        "sha256": "89ca5b60ed7a35188bb29447084e715012ff808ec566c14f66d42c4ae1572455"
+      },
+      {
+        "path": "dist/render.js",
+        "sha256": "533c26a866d56f6e2265ec2b5b050b6341ff93e7c10129cccefb92b70b004014"
+      },
+      {
+        "path": "dist/resolve.d.ts",
+        "sha256": "84860c0f1fab6a14ff4971bd6fef2238e94554f0065ad525d6ec0511570448cc"
+      },
+      {
+        "path": "dist/resolve.js",
+        "sha256": "8b01f5ab158668f037b82790a5b277a47540a1cb19d80ec5524ae3b4d60f664e"
+      },
+      {
+        "path": "dist/resources.d.ts",
+        "sha256": "94b3a87e00618b0394f5646fdb79d29347f52f7b359ecfcbb47c5d74f0840401"
+      },
+      {
+        "path": "dist/resources.js",
+        "sha256": "953a1441e695e5bc2740850a8a132f08da008dfc03cf19ce619c487ea154148d"
+      },
+      {
+        "path": "dist/review.d.ts",
+        "sha256": "efd71699c7741742e31acc3245035dfee7cef4a92a3043219adcb876da6f2071"
+      },
+      {
+        "path": "dist/review.js",
+        "sha256": "8a004a97a8f75180c047d03f5406c9678dbc34974b1e5b4d790c67821eec9efd"
+      },
+      {
+        "path": "dist/stress.d.ts",
+        "sha256": "7814ce87104d3ea233be840a4cc34e6792fd9518138be2349baa648efc0dcddf"
+      },
+      {
+        "path": "dist/stress.js",
+        "sha256": "b911cb0f5c67d33824c47e4d90e7aad27ad27694fc5933a509fd2c8d067fefd0"
+      },
+      {
+        "path": "dist/tokenize.d.ts",
+        "sha256": "647d4f840bf356ed23a81cf5ec1d6dcf42a965f46cfba0de956ac6a85473651e"
+      },
+      {
+        "path": "dist/tokenize.js",
+        "sha256": "e6e23ec64b0a510c47d8eb3d2febac89d38e3f074eb7f3ebac6477d753bb731f"
+      }
+    ],
+    "fingerprint": "c738feefb2b7f6ee84dd5ba9e67f7501e0d4f13d31838622754814e9514f7400",
+    "dictionary": {
+      "sha256": "3169138b0399d5f060a5957dd479ca38c6e74b393608e473b89784863ffcbc83",
+      "sourceVerified": false
+    }
+  },
+  "measurement": "regression corpus; not an independent held-out estimate",
+  "tokenPreservation": {
+    "exactRows": 28,
+    "rows": 28
+  },
+  "qualityFloors": {
+    "precision": 1,
+    "recall": 0.969
+  },
   "rows": 28,
-  "tp": 130,
+  "dictionaryValidation": {
+    "entries": 2835696,
+    "invalidEntries": 148,
+    "issues": [
+      {
+        "index": 122231,
+        "word": "бистрець",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 227588,
+        "word": "вив'юнюймось",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227589,
+        "word": "вив'юнюймося",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227590,
+        "word": "вив'юнюйсь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227591,
+        "word": "вив'юнюйся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227592,
+        "word": "вив'юнюйтесь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227593,
+        "word": "вив'юнюйтеся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227594,
+        "word": "вив'юнююсь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227595,
+        "word": "вив'юнююся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227596,
+        "word": "вив'юнюються",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227597,
+        "word": "вив'юнюючись",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227598,
+        "word": "вив'юнюємось",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227599,
+        "word": "вив'юнюємося",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227600,
+        "word": "вив'юнюємся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227601,
+        "word": "вив'юнюєтесь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227602,
+        "word": "вив'юнюєтеся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227603,
+        "word": "вив'юнюється",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 227604,
+        "word": "вив'юнюєшся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 288027,
+        "word": "витравляться",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 305536,
+        "word": "вкручусь",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 305537,
+        "word": "вкручуся",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 307923,
+        "word": "влксмові",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311581,
+        "word": "вмуруймось",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311582,
+        "word": "вмуруймося",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311583,
+        "word": "вмуруйсь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311584,
+        "word": "вмуруйся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311586,
+        "word": "вмуруйтесь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311587,
+        "word": "вмуруйтеся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311589,
+        "word": "вмуруюсь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311590,
+        "word": "вмуруюся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311592,
+        "word": "вмуруються",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311596,
+        "word": "вмуруємось",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311597,
+        "word": "вмуруємося",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311598,
+        "word": "вмуруємся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311600,
+        "word": "вмуруєтесь",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311601,
+        "word": "вмуруєтеся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311602,
+        "word": "вмурується",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 311604,
+        "word": "вмуруєшся",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 341140,
+        "word": "всичуймо",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341141,
+        "word": "всичуйте",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341143,
+        "word": "всичують",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341144,
+        "word": "всичуючи",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341146,
+        "word": "всичуєм",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341147,
+        "word": "всичуємо",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341148,
+        "word": "всичуєте",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 341149,
+        "word": "всичуєш",
+        "reason": "alternative stress is not on a vowel"
+      },
+      {
+        "index": 660030,
+        "word": "заабеткуймо",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 660031,
+        "word": "заабеткуйте",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 660032,
+        "word": "заабеткують",
+        "reason": "primary stress is not on a vowel"
+      },
+      {
+        "index": 660033,
+        "word": "заабеткуєм",
+        "reason": "primary stress is not on a vowel"
+      }
+    ]
+  },
+  "tp": 128,
   "fp": 0,
-  "fn": 2,
+  "fn": 4,
   "precision": 1,
-  "recall": 0.9848484848484849,
-  "f1": 0.9923664122137404,
+  "recall": 0.9696969696969697,
+  "f1": 0.9846153846153847,
   "byTag": {
     "homographs": {
       "tp": 5,
@@ -81,9 +495,9 @@
       "rows": 1
     },
     "variants": {
-      "tp": 6,
+      "tp": 4,
       "fp": 0,
-      "fn": 0,
+      "fn": 2,
       "rows": 2
     },
     "context": {
@@ -97,14 +511,26 @@
     {
       "id": "g01",
       "word": "замок",
-      "expected": "позиція 1",
+      "expected": "1",
       "got": "без наголосу"
     },
     {
       "id": "g14",
       "word": "доєднатися",
-      "expected": "позиція 5",
+      "expected": "5",
       "got": "без наголосу"
+    },
+    {
+      "id": "g21",
+      "word": "роки",
+      "expected": "1|3",
+      "got": "3"
+    },
+    {
+      "id": "g24",
+      "word": "роки",
+      "expected": "1|3",
+      "got": "3"
     }
   ]
 }

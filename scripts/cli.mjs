@@ -5,13 +5,9 @@
  *   node scripts/cli.mjs --engine tts-uk --dict data/dict.bin < script.txt
  *   node scripts/cli.mjs --engine piper-high --json < script.txt
  */
-import { existsSync, readFileSync } from 'node:fs';
-import os from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Lexicon, StressDictionary, createOpenAiAsker, lint, prepare, prepareMany, ContextRules } from '../dist/index.js';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
+import { loadResources, createOpenAiAsker, lint, prepare, prepareMany } from '../dist/index.js';
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -20,30 +16,8 @@ function arg(name, fallback) {
 
 const engine = arg('engine', 'plain');
 const asJson = process.argv.includes('--json');
-const pkgRoot = path.resolve(here, '..');
-const home = process.env['UA_TTS_HOME'] || path.join(os.homedir(), '.local/share/ua-tts-text');
-
-/** Порядок: явний прапорець → змінна середовища → домашня тека → тека пакета. */
-function pickPath(explicit, envName, candidates) {
-  if (explicit) return path.resolve(explicit);
-  const fromEnv = process.env[envName];
-  if (fromEnv) return path.resolve(fromEnv);
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
-}
-
-const dictPath = pickPath(arg('dict', ''), 'UA_TTS_DICT', [
-  path.join(home, 'dict.bin'),
-  path.join(pkgRoot, 'data', 'dict.bin'),
-]);
-const lexiconPath = pickPath(arg('lexicon', ''), 'UA_TTS_LEXICON', [
-  path.join(home, 'names.tsv'),
-  path.join(pkgRoot, 'lexicon', 'names.tsv'),
-]);
-
 const decisionsArg = arg('decisions', '');
-const decisions = decisionsArg
-  ? JSON.parse(readFileSync(path.resolve(decisionsArg), 'utf8'))
-  : {};
+const decisions = decisionsArg ? JSON.parse(readFileSync(path.resolve(decisionsArg), 'utf8')) : {};
 
 let input = '';
 if (process.stdin.isTTY) {
@@ -53,28 +27,17 @@ if (process.stdin.isTTY) {
 }
 
 if (!input.trim()) {
-  console.error('usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--decisions file] [--resolve] [--json] < script.txt');
-  process.exit(2);
-}
-
-if (!existsSync(dictPath)) {
   console.error(
-    [
-      'немає словника наголосів.',
-      'виконай: npx ua-tts-text-fetch-dict',
-      'або вкажи шлях: --dict /шлях/до/dict.bin',
-      `(шукав у ${dictPath})`,
-    ].join('\n'),
+    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--decisions file] [--resolve] [--explain] [--json] < script.txt',
   );
   process.exit(2);
 }
-const dictionary = StressDictionary.load(dictPath);
-// Загальні слова (де словник дає рідкісний варіант) + власні назви.
-const lexicon = Lexicon.loadAll([path.join(path.dirname(lexiconPath), 'common.tsv'), lexiconPath]);
-// Контекстні правила для омонімів лежать поруч із лексиконом; --no-context їх вимикає.
-const context = process.argv.includes('--no-context')
-  ? undefined
-  : ContextRules.loadAll([path.join(pkgRoot, 'lexicon', 'context.tsv'), path.join(path.dirname(lexiconPath), 'context.tsv')]);
+
+const resources = loadResources({
+  ...(arg('dict', '') ? { dictionaryPath: arg('dict') } : {}),
+  ...(arg('lexicon', '') ? { lexiconPath: arg('lexicon') } : {}),
+});
+const disableContext = process.argv.includes('--no-context');
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
 const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';
 if (useResolve && !apiKey) {
@@ -91,22 +54,40 @@ const ask = useResolve
   : undefined;
 
 const base = {
-  dictionary,
+  resources,
   engine,
-  ...(lexicon ? { lexicon } : {}),
-  ...(context ? { context } : {}),
-  stress: { decisions },
+  ...(disableContext ? { context: null } : {}),
+  stress: { decisions, trace: process.argv.includes('--explain') },
 };
 
-const result = ask
-  ? (await prepareMany([input.trim()], { ...base, ask })).results[0]
-  : prepare(input.trim(), base);
+const batch = ask
+  ? await prepareMany([input.trim()], {
+      ...base,
+      ask,
+      ...(arg('max-prompt-chars', '') ? { maxPromptChars: Number(arg('max-prompt-chars')) } : {}),
+      ...(arg('resolution-failure', '')
+        ? { resolutionFailurePolicy: arg('resolution-failure') }
+        : {}),
+    })
+  : undefined;
+const result = batch?.results[0] ?? prepare(input.trim(), base);
 
-if (ask) console.error(`резолвер: ${result.homographs.length} омонімів у запиті`);
+if (batch) console.error(`резолвер: ${result.homographs.length} омонімів у запиті`);
 const issues = lint(result.text);
 
 if (asJson) {
-  console.log(JSON.stringify({ ...result, issues }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        ...result,
+        issues,
+        resources: resources.manifest,
+        ...(batch ? { resolution: { decisions: batch.decisions, missing: batch.missing, warnings: batch.warnings, promptLength: batch.promptLength } } : {}),
+      },
+      null,
+      2,
+    ),
+  );
 } else {
   console.log(result.text);
   console.error('');
@@ -115,4 +96,6 @@ if (asJson) {
   console.error(`немає у словнику (${result.unknown.length}): ${result.unknown.join(', ') || '—'}`);
   console.error(`проблеми (${issues.length}): ${issues.map((i) => `${i.kind}:${i.match}`).join(', ') || '—'}`);
   for (const warning of result.warnings) console.error(`увага: ${warning}`);
+  for (const warning of batch?.warnings ?? []) console.error(`увага: ${warning}`);
+  if (batch?.missing.length) console.error(`нерозв’язані входження (${batch.missing.length}): ${batch.missing.join(', ')}`);
 }

@@ -18,6 +18,11 @@ describe('план мовлення', () => {
     expect(plan.estimatedMs).toBeGreaterThan(3000);
   });
 
+  it('не рахує маркер наголосу як окреме слово', () => {
+    expect(planSpeech('Молоко.').estimatedMs).toBe(planSpeech('Молок+о.').estimatedMs);
+    expect(planSpeech('Атлас.').estimatedMs).toBe(planSpeech('+Атлас.').estimatedMs);
+  });
+
   it('рендерить SSML із паузами', () => {
     const plan = planSpeech('Раз, два. Три.');
     const ssml = renderPlan(plan, 'ssml');

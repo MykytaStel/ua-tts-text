@@ -58,31 +58,32 @@ const MONTHS_BY_NUMBER = [
 interface UnitDef {
   forms: readonly [string, string, string];
   gender: Gender;
+  genitiveSingular?: string;
 }
 
 /** Одиниці, після яких слово узгоджується з числом. */
 const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
-  ['км', { forms: ['кілометр', 'кілометри', 'кілометрів'], gender: 'm' }],
-  ['см', { forms: ['сантиметр', 'сантиметри', 'сантиметрів'], gender: 'm' }],
-  ['мм', { forms: ['міліметр', 'міліметри', 'міліметрів'], gender: 'm' }],
-  ['кг', { forms: ['кілограм', 'кілограми', 'кілограмів'], gender: 'm' }],
-  ['мг', { forms: ['міліграм', 'міліграми', 'міліграмів'], gender: 'm' }],
-  ['га', { forms: ['гектар', 'гектари', 'гектарів'], gender: 'm' }],
-  ['грн.', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
+  ['км', { forms: ['кілометр', 'кілометри', 'кілометрів'], gender: 'm', genitiveSingular: 'кілометра' }],
+  ['см', { forms: ['сантиметр', 'сантиметри', 'сантиметрів'], gender: 'm', genitiveSingular: 'сантиметра' }],
+  ['мм', { forms: ['міліметр', 'міліметри', 'міліметрів'], gender: 'm', genitiveSingular: 'міліметра' }],
+  ['кг', { forms: ['кілограм', 'кілограми', 'кілограмів'], gender: 'm', genitiveSingular: 'кілограма' }],
+  ['мг', { forms: ['міліграм', 'міліграми', 'міліграмів'], gender: 'm', genitiveSingular: 'міліграма' }],
+  ['га', { forms: ['гектар', 'гектари', 'гектарів'], gender: 'm', genitiveSingular: 'гектара' }],
+  ['грн.', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f', genitiveSingular: 'гривні' }],
   ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
-  ['°C', { forms: ['градус', 'градуси', 'градусів'], gender: 'm' }],
-  ['°', { forms: ['градус', 'градуси', 'градусів'], gender: 'm' }],
-  ['шт.', { forms: ['штука', 'штуки', 'штук'], gender: 'f' }],
-  ['млрд.', { forms: ['мільярд', 'мільярди', 'мільярдів'], gender: 'm' }],
-  ['млрд', { forms: ['мільярд', 'мільярди', 'мільярдів'], gender: 'm' }],
-  ['млн.', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm' }],
-  ['млн', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm' }],
-  ['тис.', { forms: ['тисяча', 'тисячі', 'тисяч'], gender: 'f' }],
-  ['т', { forms: ['тонна', 'тонни', 'тонн'], gender: 'f' }],
-  ['м/с', { forms: ['метр за секунду', 'метри за секунду', 'метрів за секунду'], gender: 'm' }],
-  ['м', { forms: ['метр', 'метри', 'метрів'], gender: 'm' }],
-  ['г', { forms: ['грам', 'грами', 'грамів'], gender: 'm' }],
-  ['л', { forms: ['літр', 'літри', 'літрів'], gender: 'm' }],
+  ['°C', { forms: ['градус', 'градуси', 'градусів'], gender: 'm', genitiveSingular: 'градуса' }],
+  ['°', { forms: ['градус', 'градуси', 'градусів'], gender: 'm', genitiveSingular: 'градуса' }],
+  ['шт.', { forms: ['штука', 'штуки', 'штук'], gender: 'f', genitiveSingular: 'штуки' }],
+  ['млрд.', { forms: ['мільярд', 'мільярди', 'мільярдів'], gender: 'm', genitiveSingular: 'мільярда' }],
+  ['млрд', { forms: ['мільярд', 'мільярди', 'мільярдів'], gender: 'm', genitiveSingular: 'мільярда' }],
+  ['млн.', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm', genitiveSingular: 'мільйона' }],
+  ['млн', { forms: ['мільйон', 'мільйони', 'мільйонів'], gender: 'm', genitiveSingular: 'мільйона' }],
+  ['тис.', { forms: ['тисяча', 'тисячі', 'тисяч'], gender: 'f', genitiveSingular: 'тисячі' }],
+  ['т', { forms: ['тонна', 'тонни', 'тонн'], gender: 'f', genitiveSingular: 'тонни' }],
+  ['м/с', { forms: ['метр за секунду', 'метри за секунду', 'метрів за секунду'], gender: 'm', genitiveSingular: 'метра за секунду' }],
+  ['м', { forms: ['метр', 'метри', 'метрів'], gender: 'm', genitiveSingular: 'метра' }],
+  ['г', { forms: ['грам', 'грами', 'грамів'], gender: 'm', genitiveSingular: 'грама' }],
+  ['л', { forms: ['літр', 'літри', 'літрів'], gender: 'm', genitiveSingular: 'літра' }],
 ];
 
 // Ключі без крапки: база обчислюється як unit[0].replace(/\.$/, '').
@@ -115,6 +116,52 @@ const ACRONYMS: Readonly<Record<string, string>> = {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** Protect strings whose spelling carries identity rather than a quantity. */
+function protectSpeechAtoms(input: string): { text: string; restore: (text: string) => string } {
+  const atoms: string[] = [];
+  const token = (value: string) => {
+    const id = atoms.push(value) - 1;
+    if (id >= 0x1900) throw new RangeError('normalize: too many protected strings');
+    // A private-use scalar cannot be mistaken for a number by later passes.
+    return String.fromCodePoint(0xe100 + id);
+  };
+  const patterns = [
+    /(?<![\p{L}\d])v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?![\p{L}\d])/giu,
+    /(?<![\p{L}\d])[\p{L}\d.!#$%&'*+/=?^_`{|}~-]+@[\p{L}\d](?:[\p{L}\d-]*[\p{L}\d])?(?:\.[\p{L}\d](?:[\p{L}\d-]*[\p{L}\d])?)+(?![\p{L}\d])/giu,
+    /(?<![\p{L}\d])(?:https?:\/\/|www\.)[^\s<>]+/giu,
+    /(?<![\p{L}\d])\d{1,2}\.\d{1,2}\.\d{4}(?![\p{L}\d])/gu,
+  ];
+  let text = input;
+  for (const pattern of patterns) {
+    text = text.replace(pattern, (match) => {
+      const trail = /[.,!?;:…]+$/u.exec(match)?.[0] ?? '';
+      const core = trail ? match.slice(0, -trail.length) : match;
+      if (validDottedDate(core)) return match;
+      if (pattern.source.includes('\\d{1,2}\\.') && !validDottedDate(core)) return token(match);
+      return token(core) + trail;
+    });
+  }
+  // Phones need an explicit dial string and at least nine digits; short grouped quantities stay numeric.
+  text = text.replace(/(?<![\p{L}\d])\+?\d[\d ().-]{7,}\d(?![\p{L}\d])/gu, (match) => {
+    const digits = match.replace(/\D/gu, '');
+    const phoneLike = match.startsWith('+') || /[ ().-]/u.test(match) || (/^0/u.test(digits) && digits.length >= 10);
+    return digits.length >= 9 && phoneLike ? token(match) : match;
+  });
+  return { text, restore: (value) => value.replace(/[\uE100-\uF9FF]/gu, (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark) };
+}
+
+function validDottedDate(value: string): boolean {
+  const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/u.exec(value);
+  if (!match) return false;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= days[month - 1]!;
+}
+
 /** «24 251» → «24251»: пробіл усередині числа ламає читання. */
 function joinDigitGroups(text: string): string {
   return text.replace(/(\d)[\s\u00a0](?=\d{3}\b)/gu, '$1');
@@ -145,10 +192,7 @@ const CURRENCIES: ReadonlyArray<readonly [string, { forms: readonly [string, str
 /** «250 тис. грн.» → «двісті п'ятдесят тисяч гривень»: масштаб і валюта розгортаються разом. */
 function expandScaledCurrency(text: string): string {
   const currencies = CURRENCIES.map(([c]) => escapeRe(c)).join('|');
-  const re = new RegExp(
-    `(\\d+(?:[.,]\\d+)?)\\s*(тис\\.|млн\\.?|млрд\\.?)\\s*(${currencies})(?![\\p{L}\\d])`,
-    'giu',
-  );
+  const re = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(тис\\.|млн\\.?|млрд\\.?)\\s*(${currencies})(?![\\p{L}\\d])`, 'giu');
   return text.replace(re, (match, rawNumber: string, scale: string, currencyRaw: string) => {
     const value = parseNumeric(rawNumber);
     if (value === null) return match;
@@ -168,26 +212,33 @@ function expandUnits(text: string): string {
   const names = [...UNITS].map(([u]) => escapeRe(u)).sort((a, b) => b.length - a.length);
   const re = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${names.join('|')})(?![\\p{L}\\d])`, 'giu');
 
-  return text.replace(re, (match, rawNumber: string, unitRaw: string) => {
+  return text.replace(re, (match, rawNumber: string, unitRaw: string, offset: number, whole: string) => {
     const unit = UNITS.find(([u]) => u.toLowerCase() === unitRaw.toLowerCase());
     if (!unit) return match;
     const [, def] = unit;
     const value = parseNumeric(rawNumber);
     if (value === null) return match;
+    const prefix = whole.slice(Math.max(0, offset - 24), offset);
+    const trailingAbbreviationPeriod = unitRaw.endsWith('.') && whole.slice(offset + match.length).trim().length === 0 ? '.' : '';
+    const genitiveContext = /(?:до|від)\s*$/iu.test(prefix);
+    const genitive = def.genitiveSingular ?? def.forms[2];
+    if (genitiveContext && Number.isInteger(value)) {
+      return `${genitiveCardinal(value, def.gender)} ${value === 1 ? genitive : def.forms[2]}${trailingAbbreviationPeriod}`;
+    }
 
     const base = unit[0].replace(/\.$/u, '');
     if (SCALE_UNITS.has(base)) {
       const factor = base === 'млрд' ? 1_000_000_000 : base === 'млн' ? 1_000_000 : 1_000;
       const scaled = value * factor;
       if (value < 1000 && Math.abs(scaled - Math.round(scaled)) < 1e-6) {
-        return cardinal(Math.round(scaled), def.gender);
+        return `${cardinal(Math.round(scaled), def.gender)}${trailingAbbreviationPeriod}`;
       }
     }
 
     if (!Number.isInteger(value)) {
-      return `${readNumber(rawNumber, def.gender)} ${pluralForm(Math.trunc(value), def.forms)}`;
+      return `${readNumber(rawNumber, def.gender)} ${genitive}${trailingAbbreviationPeriod}`;
     }
-    return `${cardinal(value, def.gender)} ${pluralForm(value, def.forms)}`;
+    return `${cardinal(value, def.gender)} ${pluralForm(value, def.forms)}${trailingAbbreviationPeriod}`;
   });
 }
 
@@ -202,12 +253,15 @@ function expandPercent(text: string): string {
 
 function expandYears(text: string): string {
   const re = /(\d{1,4})(?:-[а-яіїєґ]+)?\s*(року|році|рік|роках|роки|років|рр\.|р\.)/giu;
-  return text.replace(re, (match, rawYear: string, noun: string) => {
+  return text.replace(re, (match, rawYear: string, noun: string, offset: number, whole: string) => {
     const year = Number(rawYear);
     if (!Number.isFinite(year) || year > 2999) return match;
     // «5 р.», «за 4 роки» — це тривалість, а не «п'ятий рік» чи «четверті роки».
     const quantityNouns = new Set(['р.', 'рр.', 'років', 'роки', 'року', 'рік']);
-    if (year < 1000 && quantityNouns.has(noun.toLowerCase())) {
+    const prefix = whole.slice(Math.max(0, offset - 36), offset);
+    const durationContext = /(?:за|через|протягом|минуло|тривалістю)\s*$/iu.test(prefix);
+    const calendarContext = noun.toLowerCase() === 'року' && (year >= 100 || /(?:у|в|на|з)\s*$/iu.test(prefix));
+    if (!calendarContext && (year < 1000 || durationContext) && quantityNouns.has(noun.toLowerCase())) {
       return `${cardinal(year)} ${pluralForm(year, ['рік', 'роки', 'років'])}`;
     }
     const nounForm = noun === 'р.' ? 'року' : noun === 'рр.' ? 'роках' : noun;
@@ -226,7 +280,10 @@ function expandYearRanges(text: string): string {
 
 /** «15–20 м/с» → «від п'ятнадцяти до двадцяти метрів за секунду». */
 function expandRanges(text: string): string {
-  const units = [...UNITS].map(([u]) => escapeRe(u)).sort((a, b) => b.length - a.length).join('|');
+  const units = [...UNITS]
+    .map(([u]) => escapeRe(u))
+    .sort((a, b) => b.length - a.length)
+    .join('|');
   const months = Object.keys(MONTHS_GENITIVE).join('|');
   const re = new RegExp(
     `(?<![\\d.,])(\\d{1,4})\\s*[–—-]\\s*(\\d{1,4})(?:\\s*(${units}))?(?![\\p{L}\\d])` +
@@ -234,25 +291,28 @@ function expandRanges(text: string): string {
     'gu',
   );
 
-  return text.replace(re, (match, fromRaw: string, toRaw: string, unitRaw?: string) => {
+  return text.replace(re, (match, fromRaw: string, toRaw: string, unitRaw: string | undefined, offset: number, whole: string) => {
     const from = Number(fromRaw);
     const to = Number(toRaw);
     if (!Number.isFinite(from) || !Number.isFinite(to)) return match;
-    const head = `від ${genitiveCardinal(from)} до ${genitiveCardinal(to)}`;
+    const unit = unitRaw ? UNITS.find(([u]) => u.toLowerCase() === unitRaw.toLowerCase()) : undefined;
+    const gender = unit?.[1].gender ?? 'm';
+    const trailingAbbreviationPeriod =
+      !!unitRaw && unitRaw.endsWith('.') && whole.slice(offset + match.length).trim().length === 0 ? '.' : '';
+    const head = `від ${genitiveCardinal(from, gender)} до ${genitiveCardinal(to, gender)}`;
     if (!unitRaw) return head;
-    const unit = UNITS.find(([u]) => u.toLowerCase() === unitRaw.toLowerCase());
     if (!unit) return `${head} ${unitRaw}`;
     // Після «від … до …» іменник стоїть у родовому множини: «до семи кілометрів».
-    return `${head} ${unit[1].forms[2]}`;
+    return `${head} ${to === 1 ? (unit[1].genitiveSingular ?? unit[1].forms[2]) : unit[1].forms[2]}${trailingAbbreviationPeriod}`;
   });
 }
 
 function expandRomanCenturies(text: string): string {
   const values: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
   const forms: Record<string, 'gen' | 'loc' | 'plurLoc'> = {
-    'століття': 'gen',
-    'столітті': 'loc',
-    'століть': 'plurLoc',
+    століття: 'gen',
+    столітті: 'loc',
+    століть: 'plurLoc',
     'ст.': 'gen',
   };
   // \b не працює для кирилиці, тому межу перевіряємо lookbehind-ом.
@@ -336,12 +396,20 @@ function expandDates(text: string): string {
   const afterDotted = text.replace(dotted, (match, day: string, month: string, year: string) => {
     const monthIndex = Number(month) - 1;
     const monthWord = MONTHS_BY_NUMBER[monthIndex];
-    if (monthWord === undefined) return match;
+    if (monthWord === undefined || Number(day) < 1 || Number(day) > new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate())
+      return match;
     const yearWord = yearWords(Number(year), 'року');
     return `${dayWord(Number(day))} ${monthWord}${yearWord ? ` ${yearWord}` : ''}`;
   });
 
   return afterDotted.replace(withMonthName, (match, day: string, month: string, year?: string) => {
+    if (!year && (Number(day) < 1 || Number(day) > 31)) return match;
+    if (
+      year &&
+      (Number(day) < 1 ||
+        Number(day) > new Date(Date.UTC(Number(year), Object.keys(MONTHS_GENITIVE).indexOf(month.toLowerCase()) + 1, 0)).getUTCDate())
+    )
+      return match;
     const yearWord = year ? yearWords(Number(year), 'року') : null;
     return `${dayWord(Number(day))} ${month.toLowerCase()}${yearWord ? ` ${yearWord}` : ''}`;
   });
@@ -383,7 +451,8 @@ function cleanPunctuation(text: string): string {
 export function normalize(input: string, options: NormalizeOptions = {}): string {
   const { abbreviations = true, acronyms = true, punctuation = true } = options;
 
-  let text = input.normalize('NFC');
+  const protectedInput = protectSpeechAtoms(input.normalize('NFC'));
+  let text = protectedInput.text;
   text = text.replace(/[\u00a0\u202f]/gu, ' ');
   text = text.replace(/[’ʼ`´]/gu, "'");
   text = joinDigitGroups(text);
@@ -419,5 +488,5 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   });
 
   if (punctuation) text = cleanPunctuation(text);
-  return text;
+  return protectedInput.restore(text);
 }

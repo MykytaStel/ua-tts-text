@@ -1,18 +1,15 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { describeDict, loadDictFixture } from './dict-fixture.js';
 import { applyDecisions, parseDecisions, reviewPrompt } from '../src/agent.js';
 import { StressDictionary } from '../src/dict.js';
 import { prepare } from '../src/index.js';
 
-let dict: StressDictionary;
-
-beforeAll(() => {
-  dict = loadDictFixture();
-});
+let dict: StressDictionary | undefined;
+const getDict = () => (dict ??= loadDictFixture());
 
 describeDict('reviewPrompt', () => {
   it('містить контекст і обидва варіанти', () => {
-    const result = prepare('Замок стоїть на горі.', { dictionary: dict });
+    const result = prepare('Замок стоїть на горі.', { dictionary: getDict() });
     const prompt = reviewPrompt(result.homographs);
     expect(prompt).toContain('«Замок стоїть на горі»');
     expect(prompt).toContain('За́мок');
@@ -44,7 +41,7 @@ describeDict('parseDecisions', () => {
 
 describeDict('applyDecisions', () => {
   it('застосовує рішення і показує пропущені', () => {
-    const result = prepare('Замок стоїть на горі.', { dictionary: dict });
+    const result = prepare('Замок стоїть на горі.', { dictionary: getDict() });
     const report = applyDecisions(result.homographs, { замок: 0 });
     expect(report.decisions).toEqual({ замок: 0 });
     expect(report.missing).toContain('горі');
@@ -52,7 +49,7 @@ describeDict('applyDecisions', () => {
   });
 
   it('показує зайві ключі', () => {
-    const result = prepare('Замок стоїть на горі.', { dictionary: dict });
+    const result = prepare('Замок стоїть на горі.', { dictionary: getDict() });
     const report = applyDecisions(result.homographs, { замок: 0, горі: 1, кіт: 1 });
     expect(report.extra).toEqual(['кіт']);
   });

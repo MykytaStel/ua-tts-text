@@ -2,7 +2,7 @@
 /** Швидкість: завантаження словника, нормалізація й розстановка наголосів. */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Lexicon, StressDictionary, normalize, stressify } from '../dist/index.js';
+import { Lexicon, StressDictionary, normalize, stressify, tokenizeWords } from '../dist/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const start = performance.now();
@@ -23,7 +23,7 @@ const t1 = performance.now();
 const result = stressify(normalized, dict, { symbol: 'plus-before', lexicon });
 const stressMs = performance.now() - t1;
 
-const words = (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu) ?? []).length;
+const words = tokenizeWords(text).length;
 console.log(JSON.stringify({
   dictWords: dict.size,
   loadMs: Math.round(loadMs),

@@ -14,18 +14,21 @@
 
 | Блок | Стан |
 |---|---|
-| `normalize()` — числа, діапазони, роки, дати, відсотки, одиниці, валюта, скорочення, пунктуація | ✅ 77 тестів |
+| `normalize()` — числа, діапазони, роки, дати, відсотки, одиниці, валюта, скорочення, пунктуація | ✅ модульні кейси + 13 точних fixtures |
 | `stress()` — наголоси бінарним словником (2,84 млн словоформ) | ✅ |
 | `render()` — профілі рушіїв | ✅ |
 | `homographs()` / `decisions` — омоніми з двома варіантами і вибір людини/LLM | ✅ |
 | `lint()` — що лишилось небезпечним у тексті | ✅ |
 | Лексикон власних назв (`lexicon/names.tsv`) | ✅ 84 назви |
-| Дефісні слова й морфологічний фолбек | ✅ 88 тестів |
+| Спільний токенізатор, построковий аудит і мультимножинна оцінка наголосів | ✅ модульні й CLI перевірки |
+| Перевірка TSV, походження лексиконного рядка й trace джерела наголосу | ✅
 | Слова поза словником через LLM (`resolveUnknown`) | ✅ |
 | SKILL.md для агентів | ✅ `skills/ua-voiceover-prep/` |
-| Публікація (npm, skills.sh) | ⏳ |
+| Публікація (npm, skills.sh) | ⏳ — цей робочий стан не опублікований |
 
 ## Встановлення
+
+Потрібен Node.js 22 або новіший.
 
 ```bash
 npm i ua-tts-text
@@ -80,7 +83,8 @@ const fixed = prepare(text, {
 
 ## Розв'язання омонімів через LLM
 
-Один запит на весь текст — модель бачить речення й обирає варіант:
+Короткий текст іде одним запитом; довгий ділиться на обмежені порції. Кожне
+входження має власний ID, а невідповідь лишається в черзі перевірки:
 
 ```bash
 UA_TTS_LLM_KEY=... UA_TTS_LLM_BASE_URL=https://api.deepseek.com UA_TTS_LLM_MODEL=deepseek-chat \
@@ -92,11 +96,13 @@ import { createOpenAiAsker, prepareMany } from 'ua-tts-text';
 
 const ask = createOpenAiAsker({ apiKey, model: 'deepseek-chat' });
 const { results, decisions, promptLength } = await prepareMany(paragraphs, {
-  dictionary, engine: 'tts-uk', ask,
+  dictionary, engine: 'tts-uk', ask, maxPromptChars: 12_000,
 });
 ```
 
-Запит на 5 омонімів — близько 900 символів; на ролик із 300 слів це один виклик і частки цента.
+`maxPromptChars` обмежує кожен запит (типово 12 000 символів). За замовчуванням
+помилка провайдера зупиняє операцію. `resolutionFailurePolicy: 'leave-unresolved'`
+повертає часткові рішення, лишає проблемні порції у `missing` і додає `warnings`.
 Резолвер вимкнений, поки не задано `ask` (у CLI — `--resolve`).
 
 ## Розв'язання омонімів агентом
@@ -120,7 +126,7 @@ const final = prepare(text, { dictionary, engine: 'tts-uk', stress: { decisions 
    (`ковбасити` → `ковб+асити`). На held-out вибірці словника: 98% точності, 14,5% покриття.
 3. **Суфіксна модель** — останні 5 літер і найчастіша відстань до кінця, але лише
    з упевненістю ≥70% (`діджиталізація` → `діджиталіз+ація`).
-4. **LLM** — для решти `prepareMany` питає індекс наголошеної голосні й перевіряє його.
+4. **LLM** — `prepareMany` розв’язує омоніми по входженнях; вгадування невідомих слів потребує `resolveUnknown: true`.
 
 Разом це закриває близько половини невідомих слів автоматично з точністю ~87%,
 решту — LLM або людина.
@@ -223,7 +229,7 @@ npx skills add MykytaStel/ua-tts-text
 
 ## Інтеграція у Content Factory
 
-Гілка `feat/ua-tts-text` у репозиторії фабрики (окремий worktree, `main` не зачеплений):
+Інтеграція у Content Factory зберігає цей пакет у `packages/ua-tts-text`; npm-публікація лишається окремим релізним кроком:
 
 - `packages/providers/src/tts-text-prep.ts` готує абзаци до синтезу (числа, дати, наголоси, лексикон);
 - `tts-uk.ts` передає готовий текст Python-скрипту з прапорцем `prepared: true`, і той лише синтезує;
@@ -256,7 +262,7 @@ node scripts/fetch-dict.mjs --local # у ./data/dict.bin (репозиторій
 
 ## Свідомі обмеження
 
-- Числа читаються в називному відмінку; у діапазонах («5–7») — у родовому.
+- Числа узгоджуються з поширеними контекстами (`до`/`від`, одиниці виміру й діапазони); це не повний морфологічний коректор довільних речень.
 - Складені назви з дефісом («Кам'янка-Бузька») отримують лише один наголос — це робота лексикону.
 - Абревіатури — невелика таблиця; решта лишається як є.
 - Латинські назви не транслітеруються, а лише потрапляють у звіт.
@@ -276,12 +282,57 @@ node scripts/audit.mjs --dir ~/шлях/до/сценаріїв
 npm run eval
 ```
 
-Золотий набір — `evaluation/gold.tsv`: 20 речень із наголосами. Поточний стан:
-**точність 97,8%, повнота 82,9%** (F1 89,7%). Низька повнота — це переважно
-омоніми, які рушій свідомо не вгадує; саме їх закриває LLM-резолвер.
+Золотий набір — `evaluation/gold.tsv`: 28 регресійних речень, не незалежний holdout. Останній локальний прогін: **точність 100,0%, повнота 97,0%, F1 98,5%; 28/28 рядків зі збереженою послідовністю слів**. Тепер scorer вимагає всі очікувані наголоси й карає зайві, зокрема неповний багатонаголосний варіант. Чотири пропуски: невирішений омонім «замок», «доєднатися» поза словником і два речення, де в gold дозволено обидва наголоси, а пакет видав лише один. Це не оцінка згенерованого аудіо й не незалежний holdout. Перевірки нормалізації: 13 точних fixtures.
 
 Спірні місця для перевірки людиною — `evaluation/review.md`.
 
 ## Ліцензія
 
 MIT.
+
+
+### 0.13 integration contract
+
+```ts
+import { loadResources, prepareMany } from 'ua-tts-text';
+const resources = loadResources({ required: true });
+const batch = await prepareMany(paragraphs, {
+  resources,
+  engine: 'tts-uk',
+});
+// Include resources.manifest.fingerprint in generated-audio cache identity.
+// Reuse batch.decisionFingerprint to reject stale per-occurrence choices.
+```
+
+Bundled common/names are loaded first, then local common/names override them.
+Project context rules are evaluated before bundled rules. Explicit lexicon rows are protected from broad context rules. `UA_TTS_HOME`,
+`UA_TTS_DICT`, and `UA_TTS_LEXICON` are shared by CLI and the API loader.
+No local files are modified by loading resources. Explicit missing lexicons fail.
+
+Migration: `prepareMany().decisions` is keyed by `paragraph:offset` (UTF-16 offsets
+in normalized input). `prepareMany()` also returns a `decisionFingerprint`; pass it
+back as `expectedDecisionFingerprint` with saved manual choices to reject stale
+offsets after normalized text or resource changes. For multiple paragraphs, use
+`occurrenceDecisions` keys such as `0:12`; legacy `stress.occurrenceDecisions` is
+accepted only for one paragraph. Do not pass `prepareMany().decisions` to
+`stress.decisions`, which remains a global word override. `homographs()` returns
+unresolved occurrences and offsets.
+Unknown-word LLM guessing is disabled unless `resolveUnknown: true`. Such guesses
+remain unverified and should not be persisted as normative dictionary entries.
+
+The dictionary fetcher uses `scripts/dictionary-source.json`; it checks the source
+hash before building. An existing different binary is retained as `dict.<sha256>.bin`.
+For rollback, select that file with `UA_TTS_DICT`; keep the matching npm version and
+local TSV snapshot. The resource manifest identifies what was actually loaded.
+The package prepares speech text; it does not correct arbitrary grammar. Accuracy
+on the regression corpus is not an independent held-out or listening assessment.
+
+## Проєктні назви й власні словоформи
+
+Пакет спершу бере вбудовані загальні форми, потім вбудовані назви, і нарешті локальний лексикон із `UA_TTS_LEXICON` або `--lexicon`. Для конкретного проєкту створи окремий `names.tsv`; повний шаблон із колонками для категорії, джерела, проєкту, основної назви й статусу є в `lexicon/project-template.tsv`. Старі чотириколонкові рядки сумісні. Кожну потрібну відмінкову форму додавай явно: лексикон не вигадує граматичне відмінювання власних назв. Рядки `draft` і `rejected` видно через `lexicon.inactiveEntries`, але вони не впливають на вимову. TSV-помилки (неправильний наголос, дубль у файлі, невідповідне слово чи невідомий статус) зупиняють завантаження з конкретним повідомленням.
+
+Налаштуй шлях один раз для середовища: `UA_TTS_LEXICON=/path/to/project/names.tsv`. API `prepare()` приймає `lexicon` без базового словника для вузьких проєктних override-ів, але попереджає, що загальне покриття наголосів буде неповним. Ресурсний fingerprint охоплює версію пакета, runtime-модулі бібліотеки, словник, лексикони й контекстні правила — зміни коду також скидають кеш генерації. Його можна додати до журналу синтезу.
+
+## Оцінювання
+
+`pnpm test` запускає модульні тести зі словником і без нього, перевірки TSV, оцінювача, рецензування входжень, побудови словника й точні fixtures нормалізації. `node scripts/package-smoke.mjs` пакує npm-архів, встановлює його в тимчасовий каталог і перевіряє API та CLI. `pnpm eval` оцінює регресійний gold-набір; `pnpm eval:normalization` повторно перевіряє очікувані виходи нормалізатора. Метрика наголосів вимагає точного набору позначок у кожному входженні; окремо фіксується збереження послідовності слів. Див. [evaluation/README.md](evaluation/README.md): ці fixtures не є незалежним holdout і не замінюють сліпе аудіювання.

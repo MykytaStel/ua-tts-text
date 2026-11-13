@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardinal, decimalWords, inflectOrdinal, ordinal, pluralForm, yearWords } from '../src/numbers.js';
+import { cardinal, decimalWords, genitiveCardinal, inflectOrdinal, ordinal, pluralForm, yearWords } from '../src/numbers.js';
 import { normalize } from '../src/normalize.js';
 
 describe('cardinal', () => {
@@ -22,6 +22,15 @@ describe('cardinal', () => {
     expect(cardinal(1, 'f')).toBe('одна');
     expect(cardinal(2, 'f')).toBe('дві');
     expect(cardinal(21, 'f')).toBe('двадцять одна');
+  });
+});
+
+describe('genitiveCardinal', () => {
+  it('узгоджує форму одного з родом іменника', () => {
+    expect(genitiveCardinal(1)).toBe('одного');
+    expect(genitiveCardinal(1, 'f')).toBe('однієї');
+    expect(genitiveCardinal(21, 'f')).toBe('двадцяти однієї');
+    expect(genitiveCardinal(1001, 'f')).toBe('тисячі однієї');
   });
 });
 
@@ -97,7 +106,23 @@ describe('normalize', () => {
 
   it('масштабні слова читаються повним числом', () => {
     expect(normalize('2,8 млн')).toBe('два мільйони вісімсот тисяч');
-    expect(normalize('1,5 тис.')).toBe("тисяча п'ятсот");
+    expect(normalize('1,5 тис.')).toBe("тисяча п'ятсот.");
+  });
+
+  it('узгоджує числівник з прийменником і одиницею', () => {
+    expect(normalize('До 5 км.')).toBe("До п'яти кілометрів.");
+    expect(normalize('До 1 грн.')).toBe('До однієї гривні.');
+    expect(normalize('До 1 шт.')).toBe('До однієї штуки.');
+    expect(normalize('1,5 кг.')).toBe("одна ціла п'ять десятих кілограма.");
+    expect(normalize('0–1 м.')).toBe('від нуля до одного метра.');
+    expect(normalize('0–1 грн.')).toBe('від нуля до однієї гривні.');
+  });
+
+  it('зберігає ідентифікатори, контакти й невалідні дати', () => {
+    expect(normalize('Версія 0.13.0.')).toBe('Версія 0.13.0.');
+    expect(normalize('Телефон +380671234567.')).toBe('Телефон +380671234567.');
+    expect(normalize('31.02.2026')).toBe('31.02.2026');
+    expect(normalize('Лист test@example.org, https://example.org/a.')).toBe('Лист test@example.org, https://example.org/a.');
   });
 
   it('дати', () => {
@@ -126,9 +151,7 @@ describe('normalize', () => {
   });
 
   it('діапазон років не дублює слово-носій', () => {
-    expect(normalize('у 1990-1991 роках')).toBe(
-      "у тисяча дев'ятсот дев'яностих, тисяча дев'ятсот дев'яносто перших роках",
-    );
+    expect(normalize('у 1990-1991 роках')).toBe("у тисяча дев'ятсот дев'яностих, тисяча дев'ятсот дев'яносто перших роках");
   });
 
   it('порядкові дати з -го', () => {
@@ -147,7 +170,8 @@ describe('normalize', () => {
   });
 
   it('довгі числа читаються по цифрах', () => {
-    expect(normalize('0 800 123 456')).toBe("нуль вісім нуль нуль один два три чотири п'ять шість");
+    expect(normalize('0 800 123 456')).toBe('0 800 123 456');
+    expect(normalize('123456789')).toBe("один два три чотири п'ять шість сім вісім дев'ять");
   });
 
   it('не чіпає цифри, приклеєні до латинки', () => {

@@ -43,6 +43,8 @@ export interface PlanOptions {
  */
 const EMPHASIS_RE = /(?:^|[\s,(])(?:не|ні|але|проте|однак|саме|лише|тільки|навіть)(?:[\s,.)]|$)/iu;
 
+import { tokenizeWords } from './tokenize.js';
+
 const SENTENCE_RE = /[^.!?…]+[.!?…]*/gu;
 const CLAUSE_RE = /[^,;:—–]+[,;:—–]?/gu;
 
@@ -54,7 +56,7 @@ function kindOf(text: string): SegmentKind {
 }
 
 function wordCount(text: string): number {
-  return (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu) ?? []).length;
+  return tokenizeWords(text).length;
 }
 
 /**
@@ -97,7 +99,11 @@ const escapeSsml = (value: string) => value.replace(/&/gu, '&amp;').replace(/</g
  * пунктуацією (для рушіїв без SSML).
  */
 export function renderPlan(plan: SpeechPlan, profile: 'plain' | 'ssml'): string {
-  if (profile === 'plain') return plan.segments.map((segment) => segment.text).join(' ').trim();
+  if (profile === 'plain')
+    return plan.segments
+      .map((segment) => segment.text)
+      .join(' ')
+      .trim();
   const body = plan.segments
     .map((segment, index) => {
       const raw = escapeSsml(segment.text);

@@ -77,3 +77,27 @@ node scripts/audit.mjs --dir ~/шлях/до/сценаріїв   # реальн
 - Не вгадуйте наголос «на слух» без джерела — краще лишити слово омонімом.
 - Не додавайте правило, яке перекриває інше без прикладу в золоті.
 - Не комітьте `data/` — словник завантажується командою `npx ua-tts-text-fetch-dict`.
+
+## Context review reports
+
+Generate a review sheet and machine-readable occurrence records from a directory
+of UTF-8 `.txt` or `.md` scripts:
+
+```bash
+node scripts/audit.mjs --dir /path/to/scripts --review /tmp/real-review.md --json /tmp/real-review.json
+```
+
+`--top` limits the number of distinct unresolved words (default 40); every
+unresolved occurrence of those words is included. Counts are occurrences, not
+the number of files containing a word. The audit uses `tts-uk` stress markers.
+
+Contexts are normalized TTS sentences. IDs contain the relative source filename
+and a UTF-16 offset into the prepared output, not a source-file line number.
+Resolved occurrences of the same spelling are excluded. Fill in a complete
+accented word, rather than a vowel letter, because a word can repeat that vowel.
+The report does not automatically modify dictionaries or decide pronunciation.
+
+Use reviewed sentences as regressions. Keep separate scripts held out when
+measuring generalization; explicit stress coverage alone does not measure
+pronunciation accuracy. Output files should be outside the input directory so
+they are not included in later audits.

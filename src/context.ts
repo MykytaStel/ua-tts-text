@@ -25,6 +25,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { normalizeKey, parseStressed } from './lexicon.js';
+import { tokenizeWords, plainWord } from './tokenize.js';
 
 /** Що видно навколо слова в його частині речення. */
 export interface ContextView {
@@ -41,6 +42,7 @@ export interface ContextView {
 /** Джерело контекстних рішень для `stressify`. */
 export interface ContextSource {
   resolve(word: string, view: ContextView): number[] | null;
+  explain?(word: string, view: ContextView): { positions: number[]; condition: string; source: string } | null;
 }
 
 type Test = (view: ContextView) => boolean;
@@ -55,16 +57,11 @@ interface Rule {
 /** Наступне за позицією слово: у тій самій частині речення чи вже за розділовим знаком. */
 const BREAK_RE = /[.,;:!?…()«»"„“”\n—–]|\s-\s/u;
 
-const WORD_RE = /[\p{L}][\p{L}’ʼ'`+\-]*/gu;
-
-const plain = (word: string): string =>
-  normalizeKey(word)
-    .replace(/[́+]/gu, '')
-    .replace(/-+$/u, '');
+const plain = (word: string): string => normalizeKey(plainWord(word));
 
 /** Сусіди кожного слова тексту — у порядку появи слів. */
 export function contextViews(text: string): Array<{ index: number; word: string; view: ContextView }> {
-  const words = [...text.matchAll(WORD_RE)].map((match) => ({ index: match.index, word: match[0] }));
+  const words = tokenizeWords(text).map(({ start: index, text: word }) => ({ index, word }));
   return words.map((current, i) => {
     const before = words[i - 1];
     const after = words[i + 1];
@@ -90,6 +87,7 @@ export class ContextRules implements ContextSource {
   readonly #rules = new Map<string, Rule[]>();
   readonly #sets = new Map<string, string[]>();
   #count = 0;
+  #sealed = false;
 
   /** Завантажує кілька файлів; правила пізніших файлів додаються після ранніх. */
   static loadAll(files: readonly string[]): ContextRules {
@@ -112,6 +110,7 @@ export class ContextRules implements ContextSource {
 
   /** Додає правила з тексту TSV. Помилка у рядку — виняток із номером рядка, а не тихий пропуск. */
   addTsv(tsv: string, origin = 'tsv'): void {
+    if (this.#sealed) throw new Error('context: resource snapshot is immutable');
     tsv.split('\n').forEach((line, i) => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) return;
@@ -123,14 +122,26 @@ export class ContextRules implements ContextSource {
       }
       const [word, stressed, condition, source = ''] = trimmed.split('\t').map((cell) => cell.trim());
       if (!word || !stressed || !condition) throw new Error(`context: ${where}: need word, stressed form and condition`);
-      const { positions } = parseStressed(stressed);
+      let positions: number[];
+      try {
+        positions = parseStressed(stressed).positions;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`context: ${where}: ${detail}`);
+      }
       if (plain(stressed) !== plain(word)) throw new Error(`context: ${where}: "${stressed}" is not a stressed form of "${word}"`);
       this.add(word, positions, condition, source, where);
     });
   }
 
   add(word: string, positions: readonly number[], condition: string, source = '', where = 'add'): void {
+    if (this.#sealed) throw new Error('context: resource snapshot is immutable');
     if (positions.length === 0) throw new Error(`context: ${where}: no stress position for "${word}"`);
+    if (positions.length > 2 || new Set(positions).size !== positions.length)
+      throw new Error(`context: ${where}: invalid stress positions for "${word}"`);
+    const chars = [...word.normalize('NFC')];
+    if (positions.some((position) => !Number.isInteger(position) || position < 0 || position >= chars.length || !/[аеєиіїоуяю]/iu.test(chars[position]!)))
+      throw new Error(`context: ${where}: stress positions must identify vowels in "${word}"`);
     const tests = condition.split('&').map((part) => this.#test(part.trim(), where));
     const key = normalizeKey(word);
     const list = this.#rules.get(key) ?? [];
@@ -142,6 +153,12 @@ export class ContextRules implements ContextSource {
   /** Скільки правил завантажено. */
   get size(): number {
     return this.#count;
+  }
+
+  /** Prevent callers of a shared resource snapshot from changing its decisions. */
+  seal(): this {
+    this.#sealed = true;
+    return this;
   }
 
   /** Чи є для слова хоч одне правило. */
@@ -159,7 +176,7 @@ export class ContextRules implements ContextSource {
     const rules = this.#rules.get(normalizeKey(word));
     if (!rules) return null;
     const hit = rules.find((rule) => rule.tests.every((test) => test(view)));
-    return hit ? { positions: hit.positions, condition: hit.condition, source: hit.source } : null;
+    return hit ? { positions: [...hit.positions], condition: hit.condition, source: hit.source } : null;
   }
 
   #list(raw: string, where: string): string[] {

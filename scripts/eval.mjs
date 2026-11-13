@@ -15,42 +15,24 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ContextRules, Lexicon, StressDictionary, normalize, prepare } from '../dist/index.js';
+import { loadResources, normalize, prepare } from '../dist/index.js';
+import { compareText, QUALITY_FLOORS, qualityFailures } from './evaluation.mjs';
 
 const ACUTE = '\u0301';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
 const verbose = process.argv.includes('--verbose');
+const strict = process.argv.includes('--strict');
 
-const dict = StressDictionary.load(path.join(root, 'data', 'dict.bin'));
-const lexicon = Lexicon.loadAll([
-  path.join(root, 'lexicon', 'common.tsv'),
-  path.join(root, 'lexicon', 'names.tsv'),
-]);
-
-// --no-context показує базу без контекстних правил.
-const context = process.argv.includes('--no-context') ? undefined : ContextRules.loadTsv(path.join(root, 'lexicon', 'context.tsv'));
-
-const WORD_RE = /[\p{L}][\p{L}\u2019\u02bc'\u0301+\-]*/gu;
-
-function indexWords(text) {
-  const map = new Map();
-  for (const match of text.matchAll(WORD_RE)) {
-    const chars = [...match[0]];
-    const stripped = [];
-    const positions = new Set();
-    for (const char of chars) {
-      if (char === ACUTE || char === '\u00b4') {
-        if (stripped.length > 0) positions.add(stripped.length - 1);
-        continue;
-      }
-      stripped.push(char);
-    }
-    const key = stripped.join('').toLowerCase().replace(/[\u2019\u02bc`]/gu, "'");
-    if (key) map.set(key, positions.size ? positions : null);
-  }
-  return map;
-}
+const resources = loadResources({
+  home: path.join(root, 'evaluation/resources'),
+  dictionaryPath: path.join(root, 'data/dict.bin'),
+  lexiconPath: path.join(root, 'lexicon/names.tsv'),
+  required: true,
+});
+const { dictionary: dict, lexicon } = resources;
+const context = process.argv.includes('--no-context') ? undefined : resources.context;
+const dictionaryValidation = dict.validateAll();
 
 const rows = readFileSync(path.join(root, 'evaluation', 'gold.tsv'), 'utf8')
   .split('\n')
@@ -68,33 +50,21 @@ let fp = 0;
 let fn = 0;
 
 for (const row of rows) {
-  const golden = indexWords(row.text);
   const source = row.text.replace(/[\u0301\u00b4]/gu, '');
   const prepared = prepare(source, { dictionary: dict, lexicon, ...(context ? { context } : {}), engine: 'piper-medium' });
-  const produced = indexWords(prepared.text);
-
-  let rowTp = 0;
-  let rowFp = 0;
-  let rowFn = 0;
-
-  for (const [word, expected] of golden) {
-    const actual = produced.has(word) ? produced.get(word) : null;
-    const actualList = actual ? [...actual].sort((a, b) => a - b) : [];
-    if (expected !== null) {
-      const accepted = actual !== null && actualList.some((position) => expected.has(position));
-      if (accepted) rowTp += 1;
-      else if (actualList.length === 0) {
-        rowFn += 1;
-        errors.push({ id: row.id, word, expected: `позиція ${[...expected].join('|')}`, got: 'без наголосу' });
-      } else {
-        rowFn += 1;
-        rowFp += 1;
-        errors.push({ id: row.id, word, expected: `позиція ${[...expected].join('|')}`, got: `позиція ${actualList.join('|')}` });
-      }
-    } else if (actualList.length > 0) {
-      rowFp += 1;
-      errors.push({ id: row.id, word, expected: 'без наголосу', got: `позиція ${actualList.join('|')}` });
-    }
+  const comparison = compareText(normalize(row.text), prepared.text);
+  const rowTp = comparison.tp;
+  const rowFp = comparison.fp;
+  const rowFn = comparison.fn;
+  if (!comparison.exactText)
+    errors.push({ id: row.id, issue: 'token preservation', missingWords: comparison.missingWords, extraWords: comparison.extraWords });
+  for (const error of comparison.errors.filter((item) => item.expected || item.actual)) {
+    errors.push({
+      id: row.id,
+      word: error.word,
+      expected: (error.expected ?? []).join('|') || 'без наголосу',
+      got: (error.actual ?? []).join('|') || 'без наголосу',
+    });
   }
 
   tp += rowTp;
@@ -114,6 +84,7 @@ for (const row of rows) {
 const precision = tp / (tp + fp) || 0;
 const recall = tp / (tp + fn) || 0;
 const f1 = (2 * precision * recall) / (precision + recall) || 0;
+const exactTextRows = rows.length - errors.filter((e) => e.issue === 'token preservation').length;
 
 const lines = [];
 lines.push('| набір | речень | точність | повнота | F1 |');
@@ -128,8 +99,15 @@ for (const [tag, bucket] of [...byTag].sort((a, b) => a[0].localeCompare(b[0])))
 }
 
 const report = {
-  generatedAt: new Date().toISOString(),
+  resources: {
+    ...resources.manifest,
+    files: resources.manifest.files.map((file) => ({ path: path.relative(root, file.path), sha256: file.sha256 })),
+  },
+  measurement: 'regression corpus; not an independent held-out estimate',
+  tokenPreservation: { exactRows: exactTextRows, rows: rows.length },
+  qualityFloors: QUALITY_FLOORS,
   rows: rows.length,
+  dictionaryValidation,
   tp,
   fp,
   fn,
@@ -147,3 +125,12 @@ if (verbose) {
   for (const error of errors) console.log(`  ${error.id}  ${error.word}: очікували ${error.expected}, отримали ${error.got}`);
 }
 console.log(`\nTP ${tp}, FP ${fp}, FN ${fn} → evaluation/report.json`);
+if (strict) {
+  const failures = qualityFailures({ tp, fp, fn, exactTextRows, rows: rows.length });
+  if (failures.length) {
+    console.error(`quality gate failed: ${failures.join('; ')}`);
+    process.exitCode = 1;
+  } else {
+    console.log('quality gate passed');
+  }
+}
