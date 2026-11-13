@@ -32,6 +32,8 @@ export interface StressOptions {
    */
   /** Choices scoped to UTF-16 offsets in the normalized input. */
   occurrenceDecisions?: Readonly<Record<number, 0 | 1>>;
+  /** Explicit stress positions scoped to UTF-16 offsets in the normalized input. */
+  occurrenceOverrides?: Readonly<Record<number, number>>;
   decisions?: Readonly<Record<string, 0 | 1>>;
   /** Лексикон власних назв: має пріоритет над словником. */
   lexicon?: StressSource;
@@ -132,6 +134,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     minReportLength = 4,
     decisions = {},
     occurrenceDecisions = {},
+    occurrenceOverrides = {},
     lexicon,
     overrides = {},
     inferFromStem = true,
@@ -237,6 +240,13 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
 
     const normalized = normalizeWord(word).replace(/-+$/u, '');
     if (normalized.length < minLength) return word;
+
+    const occurrenceOverride = occurrenceOverrides[offset];
+    if (occurrenceOverride !== undefined) {
+      marked += 1;
+      record(word, offset, 'override', [occurrenceOverride]);
+      return markWord(word, [occurrenceOverride], symbol);
+    }
 
     const override = overrides[normalized] ?? overrides[word];
     if (override !== undefined && override >= 0) {

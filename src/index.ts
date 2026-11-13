@@ -69,6 +69,8 @@ export interface PrepareManyOptions extends PrepareOptions {
   resolveUnknown?: boolean;
   /** Manual choices keyed by paragraph:UTF16Offset. */
   occurrenceDecisions?: Readonly<Record<string, 0 | 1>>;
+  /** Manual stress positions keyed by paragraph:UTF16Offset; positions index Unicode code points in the word. */
+  occurrenceOverrides?: Readonly<Record<string, number>>;
   /** Bound resolver request size and choose how provider failures are handled. */
   maxPromptChars?: number;
   resolutionFailurePolicy?: ResolveOptions['onError'];
@@ -101,6 +103,8 @@ function assertEngine(engine: string): asserts engine is EngineId {
 export async function prepareMany(inputs: readonly string[], options: PrepareManyOptions = {}): Promise<PrepareManyResult> {
   if (inputs.length > 1 && Object.keys(options.stress?.occurrenceDecisions ?? {}).length > 0)
     throw new Error('prepareMany: use paragraph:offset keys in occurrenceDecisions for multiple inputs');
+  if (inputs.length > 1 && Object.keys(options.stress?.occurrenceOverrides ?? {}).length > 0)
+    throw new Error('prepareMany: use paragraph:offset keys in occurrenceOverrides for multiple inputs');
   const decisionFingerprint = createHash('sha256')
     .update(
       JSON.stringify({
@@ -123,11 +127,16 @@ export async function prepareMany(inputs: readonly string[], options: PrepareMan
   };
   const forParagraph = (paragraph: number): PrepareOptions => {
     const occurrenceDecisions: Record<number, 0 | 1> = { ...options.stress?.occurrenceDecisions };
+    const occurrenceOverrides: Record<number, number> = { ...options.stress?.occurrenceOverrides };
     for (const [key, choice] of Object.entries(options.occurrenceDecisions ?? {})) {
       const [owner, offset] = key.split(':');
       if (Number(owner) === paragraph && /^\d+$/u.test(offset ?? '')) occurrenceDecisions[Number(offset)] = choice;
     }
-    return { ...effectiveOptions, stress: { ...options.stress, occurrenceDecisions } };
+    for (const [key, position] of Object.entries(options.occurrenceOverrides ?? {})) {
+      const [owner, offset] = key.split(':');
+      if (Number(owner) === paragraph && /^\d+$/u.test(offset ?? '')) occurrenceOverrides[Number(offset)] = position;
+    }
+    return { ...effectiveOptions, stress: { ...options.stress, occurrenceDecisions, occurrenceOverrides } };
   };
   const first = inputs.map((input, paragraph) => prepare(input, forParagraph(paragraph)));
   if (!options.ask)
@@ -185,14 +194,20 @@ export async function prepareMany(inputs: readonly string[], options: PrepareMan
   }
 
   const results = inputs.map((input, paragraph) => {
-    const occurrenceDecisions: Record<number, 0 | 1> = { ...forParagraph(paragraph).stress?.occurrenceDecisions };
+    const paragraphOptions = forParagraph(paragraph);
+    const occurrenceDecisions: Record<number, 0 | 1> = { ...paragraphOptions.stress?.occurrenceDecisions };
     for (const item of occurrences) {
       const choice = decisions[item.id];
       if (item.id.startsWith(`${paragraph}:`) && choice !== undefined) occurrenceDecisions[item.offset!] = choice;
     }
     return prepare(input, {
-      ...forParagraph(paragraph),
-      stress: { ...options.stress, occurrenceDecisions, overrides: { ...overrides, ...options.stress?.overrides } },
+      ...paragraphOptions,
+      stress: {
+        ...paragraphOptions.stress,
+        occurrenceDecisions,
+        occurrenceOverrides: paragraphOptions.stress?.occurrenceOverrides ?? {},
+        overrides: { ...overrides, ...options.stress?.overrides },
+      },
     });
   });
   return { results, decisions, overrides, missing, warnings, promptLength, decisionFingerprint };

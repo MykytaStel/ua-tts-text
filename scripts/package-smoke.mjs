@@ -102,7 +102,7 @@ try {
   writeDictionaryFixture(reviewDictionary, [{ word: 'замок', position: 1, alternative: 3 }]);
   writeDictionaryFixture(changedReviewDictionary, [{ word: 'замок', position: 3, alternative: 1 }]);
   const reviewFile = path.join(temp, 'review.json');
-  const reviewInput = 'Замок. Замок.';
+  const reviewInput = 'Замок. Замок. Краудфандинг. Краудфандинг.';
   const runReviewCli = (args, input, dictionary = reviewDictionary) =>
     spawnSync(process.execPath, [path.join(installed, 'scripts/cli.mjs'), '--engine', 'tts-uk', '--no-context', ...args], {
       cwd: temp,
@@ -120,22 +120,32 @@ try {
   const review = JSON.parse(readFileSync(reviewFile, 'utf8'));
   if (
     review.format !== 'ua-tts-text-review' ||
-    review.version !== 1 ||
-    review.occurrences.length !== 2 ||
+    review.version !== 2 ||
+    review.occurrences.length !== 4 ||
     review.occurrences[0].id !== '0:0' ||
     review.occurrences[1].id !== '0:7' ||
-    review.occurrences.some((item) => item.choice !== null || item.context !== 'Замок')
+    review.occurrences[2].id !== '0:14' ||
+    review.occurrences[3].id !== '0:28' ||
+    review.occurrences.slice(0, 2).some((item) => item.kind !== 'homograph' || item.choice !== null || item.context !== 'Замок') ||
+    review.occurrences.slice(2).some((item) => item.kind !== 'unknown' || item.stressPosition !== null || item.context !== 'Краудфандинг') ||
+    review.occurrences[2].vowels.map((vowel) => vowel.position).join(',') !== '2,3,6,9'
   )
     throw new Error(`CLI review export returned unexpected data: ${JSON.stringify(review)}`);
   review.occurrences[0].choice = 0;
+  review.occurrences[2].stressPosition = 2;
   writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
   const partial = runReviewCli(['--apply-review', reviewFile], reviewInput);
-  if (partial.status !== 0 || partial.stdout.trim() !== 'З+амок. Замок.' || !partial.stderr.includes("нерозв'язаними: 1"))
+  if (
+    partial.status !== 0 ||
+    partial.stdout.trim() !== 'З+амок. Замок. Кр+аудфандинг. Краудфандинг.' ||
+    !partial.stderr.includes("нерозв'язаними: омонімів 1, невідомих слів 1")
+  )
     throw new Error(partial.stderr || `CLI partial review returned unexpected text: ${partial.stdout}`);
   review.occurrences[1].choice = 1;
+  review.occurrences[3].stressPosition = 9;
   writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
   const applied = runReviewCli(['--apply-review', reviewFile], reviewInput);
-  if (applied.status !== 0 || applied.stdout.trim() !== 'З+амок. Зам+ок.')
+  if (applied.status !== 0 || applied.stdout.trim() !== 'З+амок. Зам+ок. Кр+аудфандинг. Краудфанд+инг.')
     throw new Error(applied.stderr || `CLI review apply returned unexpected text: ${applied.stdout}`);
   const staleText = runReviewCli(['--apply-review', reviewFile], 'Замок. Інший текст.');
   if (staleText.status === 0 || !staleText.stderr.includes('different text or resources'))
@@ -143,7 +153,13 @@ try {
   const staleResources = runReviewCli(['--apply-review', reviewFile], reviewInput, changedReviewDictionary);
   if (staleResources.status === 0 || !staleResources.stderr.includes('different resource snapshot'))
     throw new Error(`CLI accepted a review file for changed resources: ${staleResources.stdout}${staleResources.stderr}`);
+  review.occurrences[2].stressPosition = 1;
+  writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
+  const invalidStressPosition = runReviewCli(['--apply-review', reviewFile], reviewInput);
+  if (invalidStressPosition.status === 0 || !invalidStressPosition.stderr.includes('must match one of the listed vowels'))
+    throw new Error(`CLI accepted a consonant stress position: ${invalidStressPosition.stdout}${invalidStressPosition.stderr}`);
   review.occurrences[0].choice = 2;
+  review.occurrences[2].stressPosition = null;
   writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
   const invalidChoice = runReviewCli(['--apply-review', reviewFile], reviewInput);
   if (invalidChoice.status === 0 || !invalidChoice.stderr.includes('must be 0, 1, or null'))

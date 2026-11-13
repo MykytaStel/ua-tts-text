@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { describeDict, loadDictFixture } from './dict-fixture.js';
-import { prepareMany, prepare, convertStressMarks } from '../src/index.js';
+import { prepareMany, prepare, convertStressMarks, StressDictionary } from '../src/index.js';
 import { Lexicon } from '../src/lexicon.js';
 let dictionary: ReturnType<typeof loadDictFixture> | undefined;
 const getDictionary = () => (dictionary ??= loadDictFixture());
@@ -52,16 +52,36 @@ describeDict('occurrence isolation', () => {
     const result = await prepareMany(['Замок. Горі. Краудфандинг.'], {
       dictionary: getDictionary(),
       engine: 'tts-uk',
+      occurrenceOverrides: { '0:13': 2 },
       stress: { decisions: { замок: 1 }, overrides: { краудфандинг: 6 } },
       ask: async () => '{"0:7":1,"0:0":0}',
     });
-    expect(result.results[0]!.text).toContain('Зам+ок. Гор+і. Краудф+андинг.');
+    expect(result.results[0]!.text).toContain('Зам+ок. Гор+і. Кр+аудфандинг.');
   });
   it('converts manual marks without splitting words or adding another stress', () => {
     expect(prepare('Замо́к. +Інший.', { dictionary: getDictionary(), engine: 'tts-uk' }).text).toBe('Зам+ок. +Інший.');
     expect(prepare('Зам+ок. +Інший.', { dictionary: getDictionary(), engine: 'edge-tts' }).text).toBe('Замок. Інший.');
     expect(convertStressMarks('2 + 2, молок+о', 'none')).toBe('2 + 2, молоко');
   });
+});
+
+it('applies different manual stress positions to repeated unknown words', async () => {
+  const lexicon = new Lexicon();
+  lexicon.add('Київ', [1]);
+  const result = await prepareMany(['Краудфандинг. Краудфандинг.'], {
+    dictionary: StressDictionary.empty(),
+    lexicon,
+    engine: 'tts-uk',
+    occurrenceOverrides: { '0:0': 2, '0:14': 9 },
+    stress: { trace: true },
+  });
+
+  expect(result.results[0]!.text).toBe('Кр+аудфандинг. Краудфанд+инг.');
+  expect(result.results[0]!.evidence?.filter((item) => item.source === 'override')).toMatchObject([
+    { word: 'Краудфандинг', offset: 0, positions: [2] },
+    { word: 'Краудфандинг', offset: 14, positions: [9] },
+  ]);
+  expect(result.results[0]!.unknown).toEqual([]);
 });
 
 it('can resolve an explicitly requested unknown word with only a project lexicon', async () => {
