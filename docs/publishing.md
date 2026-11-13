@@ -12,7 +12,7 @@
 - [x] GitHub: https://github.com/MykytaStel/ua-tts-text (публічний, топіки додано)
 - [x] CI: тести зі словником і без нього
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
-- [x] npm: https://www.npmjs.com/package/ua-tts-text (0.2.0, latest)
+- [x] npm: https://www.npmjs.com/package/ua-tts-text (`0.15.0`, this release)
 
 ## Крок 1. GitHub (зроблено)
 
@@ -36,11 +36,14 @@ gh repo edit MykytaStel/ua-tts-text \
 npm publish
 ```
 
-Через 2FA npm спершу створює заглушку `0.0.0-stage` і тримає справжню версію
-в staging — після підтвердження в браузері вона стає `latest`.
+Якщо npm попросить повторну автентифікацію або одноразовий код, заверши її в
+CLI та після публікації перевір версію й `latest` dist-tag через `npm view`.
 
 `prepack` збирає `dist` автоматично; словник у пакет не входить — його тягне
 `npx ua-tts-text` → `scripts/fetch-dict.mjs` (75 МБ, 2,84 млн словоформ).
+
+Для кожного релізу запускай `pnpm prepublishOnly`, оновлюй changelog і створюй
+release tag після злиття перевіреного commit у `main`.
 
 ## Крок 3. Каталоги скілів
 

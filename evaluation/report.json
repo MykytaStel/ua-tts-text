@@ -1,14 +1,18 @@
 {
   "resources": {
-    "version": "0.14.0",
+    "version": "0.15.0",
     "files": [
       {
         "path": "package.json",
-        "sha256": "12ad97208165f4724ca1a7b402f39815ce24921ee0b48ea938a667ae3a543bca"
+        "sha256": "4c023035208d56b95ba536b0f9d8e1942d71bab8a0077a92c376e6d0ca483b10"
       },
       {
         "path": "data/dict.bin",
-        "sha256": "3169138b0399d5f060a5957dd479ca38c6e74b393608e473b89784863ffcbc83"
+        "sha256": "cd0048d206618457362d262f390780004f514bb3f3b0d09b75f665de656ee351"
+      },
+      {
+        "path": "data/dict.manifest.json",
+        "sha256": "cbcd1395d4fb8e2c3403c9ec6ed9b68c825376f3a6d756269bd6285bed52a1d4"
       },
       {
         "path": "lexicon/common.tsv",
@@ -143,10 +147,12 @@
         "sha256": "e6e23ec64b0a510c47d8eb3d2febac89d38e3f074eb7f3ebac6477d753bb731f"
       }
     ],
-    "fingerprint": "bacac2c8770f2993bd43136254297fa3a8e865ad7bcb6dad95081a1743c14fe7",
+    "fingerprint": "4492db6097302ad015650807e24a21b9c5ab22e560833d1d698046da0ef14fff",
     "dictionary": {
-      "sha256": "3169138b0399d5f060a5957dd479ca38c6e74b393608e473b89784863ffcbc83",
-      "sourceVerified": false
+      "sha256": "cd0048d206618457362d262f390780004f514bb3f3b0d09b75f665de656ee351",
+      "sourceVerified": true,
+      "sourceCommit": "f5ca98686c32f8606bd2a82cea0e1200c2dab047",
+      "sourceSha256": "593cd3f9867b9403ad734d9b353ae2dea8a0cab02cfb84a06fbce0e0e48dba48"
     }
   },
   "measurement": "regression corpus; not an independent held-out estimate",
@@ -160,260 +166,9 @@
   },
   "rows": 28,
   "dictionaryValidation": {
-    "entries": 2835696,
-    "invalidEntries": 148,
-    "issues": [
-      {
-        "index": 122231,
-        "word": "бистрець",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 227588,
-        "word": "вив'юнюймось",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227589,
-        "word": "вив'юнюймося",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227590,
-        "word": "вив'юнюйсь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227591,
-        "word": "вив'юнюйся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227592,
-        "word": "вив'юнюйтесь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227593,
-        "word": "вив'юнюйтеся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227594,
-        "word": "вив'юнююсь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227595,
-        "word": "вив'юнююся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227596,
-        "word": "вив'юнюються",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227597,
-        "word": "вив'юнюючись",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227598,
-        "word": "вив'юнюємось",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227599,
-        "word": "вив'юнюємося",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227600,
-        "word": "вив'юнюємся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227601,
-        "word": "вив'юнюєтесь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227602,
-        "word": "вив'юнюєтеся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227603,
-        "word": "вив'юнюється",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 227604,
-        "word": "вив'юнюєшся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 288027,
-        "word": "витравляться",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 305536,
-        "word": "вкручусь",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 305537,
-        "word": "вкручуся",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 307923,
-        "word": "влксмові",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311581,
-        "word": "вмуруймось",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311582,
-        "word": "вмуруймося",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311583,
-        "word": "вмуруйсь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311584,
-        "word": "вмуруйся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311586,
-        "word": "вмуруйтесь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311587,
-        "word": "вмуруйтеся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311589,
-        "word": "вмуруюсь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311590,
-        "word": "вмуруюся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311592,
-        "word": "вмуруються",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311596,
-        "word": "вмуруємось",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311597,
-        "word": "вмуруємося",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311598,
-        "word": "вмуруємся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311600,
-        "word": "вмуруєтесь",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311601,
-        "word": "вмуруєтеся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311602,
-        "word": "вмурується",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 311604,
-        "word": "вмуруєшся",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 341140,
-        "word": "всичуймо",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341141,
-        "word": "всичуйте",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341143,
-        "word": "всичують",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341144,
-        "word": "всичуючи",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341146,
-        "word": "всичуєм",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341147,
-        "word": "всичуємо",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341148,
-        "word": "всичуєте",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 341149,
-        "word": "всичуєш",
-        "reason": "alternative stress is not on a vowel"
-      },
-      {
-        "index": 660030,
-        "word": "заабеткуймо",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 660031,
-        "word": "заабеткуйте",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 660032,
-        "word": "заабеткують",
-        "reason": "primary stress is not on a vowel"
-      },
-      {
-        "index": 660033,
-        "word": "заабеткуєм",
-        "reason": "primary stress is not on a vowel"
-      }
-    ]
+    "entries": 2834916,
+    "invalidEntries": 0,
+    "issues": []
   },
   "tp": 128,
   "fp": 0,

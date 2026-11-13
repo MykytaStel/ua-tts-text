@@ -5,9 +5,58 @@
  *   node scripts/cli.mjs --engine tts-uk --dict data/dict.bin < script.txt
  *   node scripts/cli.mjs --engine piper-high --json < script.txt
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadResources, createOpenAiAsker, lint, prepare, prepareMany } from '../dist/index.js';
+
+const REVIEW_FORMAT = 'ua-tts-text-review';
+const REVIEW_VERSION = 1;
+
+function reviewOccurrences(homographs) {
+  return homographs.map(({ word, offset, key, variants, context }) => {
+    if (!Number.isInteger(offset)) throw new Error(`homograph "${word}" has no usable occurrence offset`);
+    return { id: `0:${offset}`, key, word, context, variants };
+  });
+}
+
+function readReview(file, { engine, resources, batch }) {
+  const review = JSON.parse(readFileSync(path.resolve(file), 'utf8'));
+  if (!review || typeof review !== 'object' || Array.isArray(review)) throw new Error('review file must contain a JSON object');
+  if (review.format !== REVIEW_FORMAT || review.version !== REVIEW_VERSION)
+    throw new Error(`unsupported review file format (expected ${REVIEW_FORMAT} v${REVIEW_VERSION})`);
+  if (review.engine !== engine) throw new Error(`review file is for engine "${review.engine}", not "${engine}"`);
+  if (review.resourceFingerprint !== resources.manifest.fingerprint)
+    throw new Error('review file belongs to a different resource snapshot; export a new review file');
+  if (review.decisionFingerprint !== batch.decisionFingerprint)
+    throw new Error('review file belongs to different text or resources; export a new review file');
+  if (!Array.isArray(review.occurrences)) throw new Error('review file is missing its occurrences array');
+
+  const current = new Map(reviewOccurrences(batch.results[0].homographs).map((item) => [item.id, item]));
+  const seen = new Set();
+  const occurrenceDecisions = {};
+  for (const item of review.occurrences) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.id !== 'string')
+      throw new Error('each review occurrence must be an object with an id');
+    if (seen.has(item.id)) throw new Error(`duplicate review occurrence: ${item.id}`);
+    seen.add(item.id);
+    const expected = current.get(item.id);
+    if (
+      !expected ||
+      item.key !== expected.key ||
+      item.word !== expected.word ||
+      item.context !== expected.context ||
+      !Array.isArray(item.variants) ||
+      item.variants.length !== expected.variants.length ||
+      item.variants.some((variant, index) => variant !== expected.variants[index])
+    )
+      throw new Error(`review occurrence ${item.id} no longer matches the current text; export a new review file`);
+    if (item.choice !== null && item.choice !== 0 && item.choice !== 1)
+      throw new Error(`choice for ${item.id} must be 0, 1, or null`);
+    if (item.choice !== null) occurrenceDecisions[item.id] = item.choice;
+  }
+  if (seen.size !== current.size) throw new Error('review file is missing occurrences; export a new review file');
+  return occurrenceDecisions;
+}
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -18,6 +67,15 @@ const engine = arg('engine', 'plain');
 const asJson = process.argv.includes('--json');
 const decisionsArg = arg('decisions', '');
 const decisions = decisionsArg ? JSON.parse(readFileSync(path.resolve(decisionsArg), 'utf8')) : {};
+const reviewOutArg = arg('review-out', '');
+const applyReviewArg = arg('apply-review', '');
+if (process.argv.includes('--review-out') && (!reviewOutArg || reviewOutArg.startsWith('--')))
+  throw new Error('--review-out requires a file path');
+if (process.argv.includes('--apply-review') && (!applyReviewArg || applyReviewArg.startsWith('--')))
+  throw new Error('--apply-review requires a file path');
+if (reviewOutArg && applyReviewArg) throw new Error('use only one of --review-out or --apply-review');
+if ((reviewOutArg || applyReviewArg) && decisionsArg)
+  throw new Error('--decisions cannot be combined with occurrence review; use choices in the review file');
 
 let input = '';
 if (process.stdin.isTTY) {
@@ -28,7 +86,7 @@ if (process.stdin.isTTY) {
 
 if (!input.trim()) {
   console.error(
-    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--decisions file] [--resolve] [--explain] [--json] < script.txt',
+    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--decisions file | --review-out file | --apply-review file] [--resolve] [--explain] [--json] < script.txt',
   );
   process.exit(2);
 }
@@ -39,6 +97,7 @@ const resources = loadResources({
 });
 const disableContext = process.argv.includes('--no-context');
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
+if ((reviewOutArg || applyReviewArg) && useResolve) throw new Error('occurrence review cannot be combined with --resolve');
 const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';
 if (useResolve && !apiKey) {
   console.error('--resolve потребує UA_TTS_LLM_KEY (OpenAI-сумісний ключ)');
@@ -60,19 +119,65 @@ const base = {
   stress: { decisions, trace: process.argv.includes('--explain') },
 };
 
-const batch = ask
-  ? await prepareMany([input.trim()], {
-      ...base,
-      ask,
-      ...(arg('max-prompt-chars', '') ? { maxPromptChars: Number(arg('max-prompt-chars')) } : {}),
-      ...(arg('resolution-failure', '')
-        ? { resolutionFailurePolicy: arg('resolution-failure') }
-        : {}),
-    })
-  : undefined;
-const result = batch?.results[0] ?? prepare(input.trim(), base);
+let batch;
+let reviewSummary;
+let result;
+if (applyReviewArg) {
+  const preview = await prepareMany([input.trim()], base);
+  const occurrenceDecisions = readReview(applyReviewArg, { engine, resources, batch: preview });
+  batch = await prepareMany([input.trim()], {
+    ...base,
+    occurrenceDecisions,
+    expectedDecisionFingerprint: preview.decisionFingerprint,
+  });
+  result = batch.results[0];
+  reviewSummary = {
+    mode: 'applied',
+    file: path.resolve(applyReviewArg),
+    applied: Object.keys(occurrenceDecisions).length,
+    unresolved: result.homographs.length,
+    decisionFingerprint: batch.decisionFingerprint,
+  };
+} else if (reviewOutArg || ask) {
+  batch = await prepareMany(
+    [input.trim()],
+    ask
+      ? {
+          ...base,
+          ask,
+          ...(arg('max-prompt-chars', '') ? { maxPromptChars: Number(arg('max-prompt-chars')) } : {}),
+          ...(arg('resolution-failure', '') ? { resolutionFailurePolicy: arg('resolution-failure') } : {}),
+        }
+      : base,
+  );
+  result = batch.results[0];
+  if (reviewOutArg) {
+    const artifact = {
+      format: REVIEW_FORMAT,
+      version: REVIEW_VERSION,
+      engine,
+      decisionFingerprint: batch.decisionFingerprint,
+      resourceFingerprint: resources.manifest.fingerprint,
+      occurrences: reviewOccurrences(result.homographs).map((item) => ({ ...item, choice: null })),
+    };
+    const file = path.resolve(reviewOutArg);
+    writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`);
+    reviewSummary = {
+      mode: 'exported',
+      file,
+      occurrences: artifact.occurrences.length,
+      decisionFingerprint: artifact.decisionFingerprint,
+    };
+  }
+} else {
+  result = prepare(input.trim(), base);
+}
 
-if (batch) console.error(`резолвер: ${result.homographs.length} омонімів у запиті`);
+if (ask && batch) console.error(`резолвер: ${result.homographs.length} омонімів у запиті`);
+if (reviewSummary?.mode === 'exported')
+  console.error(`файл перегляду: ${reviewSummary.file} · входжень: ${reviewSummary.occurrences}`);
+if (reviewSummary?.mode === 'applied')
+  console.error(`застосовано рішень: ${reviewSummary.applied} · лишилось нерозв'язаними: ${reviewSummary.unresolved}`);
 const issues = lint(result.text);
 
 if (asJson) {
@@ -82,7 +187,8 @@ if (asJson) {
         ...result,
         issues,
         resources: resources.manifest,
-        ...(batch ? { resolution: { decisions: batch.decisions, missing: batch.missing, warnings: batch.warnings, promptLength: batch.promptLength } } : {}),
+        ...(ask && batch ? { resolution: { decisions: batch.decisions, missing: batch.missing, warnings: batch.warnings, promptLength: batch.promptLength } } : {}),
+        ...(reviewSummary ? { review: reviewSummary } : {}),
       },
       null,
       2,

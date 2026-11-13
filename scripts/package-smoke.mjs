@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Verify the packed npm archive through a clean local install. */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,28 @@ const npmEnv = {
   // The smoke test must create an archive even when called by `npm publish --dry-run`.
   npm_config_dry_run: 'false',
 };
+
+function writeDictionaryFixture(file, entries) {
+  const sorted = [...entries].sort((left, right) => Buffer.compare(Buffer.from(left.word), Buffer.from(right.word)));
+  const keys = sorted.map(({ word }) => Buffer.from(word, 'utf8'));
+  const header = Buffer.alloc(16);
+  header.write('UATS3', 0, 'latin1');
+  header.writeUInt32LE(sorted.length, 8);
+  header.writeUInt32LE(0, 12);
+  const offsets = Buffer.alloc((sorted.length + 1) * 4);
+  const positions = Buffer.alloc(sorted.length * 2, 255);
+  const flags = Buffer.alloc(sorted.length);
+  let offset = 0;
+  for (const [index, entry] of sorted.entries()) {
+    offsets.writeUInt32LE(offset, index * 4);
+    offset += keys[index].length;
+    positions[index * 2] = entry.position;
+    positions[index * 2 + 1] = entry.alternative;
+  }
+  offsets.writeUInt32LE(offset, sorted.length * 4);
+  writeFileSync(file, Buffer.concat([header, offsets, positions, flags, ...keys]));
+}
+
 try {
   execFileSync('pnpm', ['build'], { cwd: root, stdio: 'inherit' });
   const packed = JSON.parse(
@@ -58,12 +80,74 @@ try {
   const cli = spawnSync(
     process.execPath,
     [path.join(installed, 'scripts/cli.mjs'), '--engine', 'piper-medium', '--json'],
-    { cwd: temp, encoding: 'utf8', input: 'Кодове', env: { ...process.env, UA_TTS_LEXICON: names } },
+    {
+      cwd: temp,
+      encoding: 'utf8',
+      input: 'Кодове',
+      env: {
+        ...process.env,
+        UA_TTS_HOME: path.join(temp, 'home'),
+        UA_TTS_DICT: path.join(temp, 'missing-dict.bin'),
+        UA_TTS_LEXICON: names,
+      },
+    },
   );
   if (cli.status !== 0) throw new Error(cli.stderr || 'installed CLI smoke failed');
   const result = JSON.parse(cli.stdout);
   if (result.text !== 'Ко́дове' || !result.resourceFingerprint || !result.resources?.fingerprint)
     throw new Error(`installed CLI smoke returned unexpected output: ${cli.stdout}`);
+
+  const reviewDictionary = path.join(temp, 'review-dict.bin');
+  const changedReviewDictionary = path.join(temp, 'changed-review-dict.bin');
+  writeDictionaryFixture(reviewDictionary, [{ word: 'замок', position: 1, alternative: 3 }]);
+  writeDictionaryFixture(changedReviewDictionary, [{ word: 'замок', position: 3, alternative: 1 }]);
+  const reviewFile = path.join(temp, 'review.json');
+  const reviewInput = 'Замок. Замок.';
+  const runReviewCli = (args, input, dictionary = reviewDictionary) =>
+    spawnSync(process.execPath, [path.join(installed, 'scripts/cli.mjs'), '--engine', 'tts-uk', '--no-context', ...args], {
+      cwd: temp,
+      encoding: 'utf8',
+      input,
+      env: {
+        ...process.env,
+        UA_TTS_HOME: path.join(temp, 'home'),
+        UA_TTS_DICT: dictionary,
+        UA_TTS_LEXICON: names,
+      },
+    });
+  const exported = runReviewCli(['--review-out', reviewFile], reviewInput);
+  if (exported.status !== 0) throw new Error(exported.stderr || 'CLI review export failed');
+  const review = JSON.parse(readFileSync(reviewFile, 'utf8'));
+  if (
+    review.format !== 'ua-tts-text-review' ||
+    review.version !== 1 ||
+    review.occurrences.length !== 2 ||
+    review.occurrences[0].id !== '0:0' ||
+    review.occurrences[1].id !== '0:7' ||
+    review.occurrences.some((item) => item.choice !== null || item.context !== 'Замок')
+  )
+    throw new Error(`CLI review export returned unexpected data: ${JSON.stringify(review)}`);
+  review.occurrences[0].choice = 0;
+  writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
+  const partial = runReviewCli(['--apply-review', reviewFile], reviewInput);
+  if (partial.status !== 0 || partial.stdout.trim() !== 'З+амок. Замок.' || !partial.stderr.includes("нерозв'язаними: 1"))
+    throw new Error(partial.stderr || `CLI partial review returned unexpected text: ${partial.stdout}`);
+  review.occurrences[1].choice = 1;
+  writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
+  const applied = runReviewCli(['--apply-review', reviewFile], reviewInput);
+  if (applied.status !== 0 || applied.stdout.trim() !== 'З+амок. Зам+ок.')
+    throw new Error(applied.stderr || `CLI review apply returned unexpected text: ${applied.stdout}`);
+  const staleText = runReviewCli(['--apply-review', reviewFile], 'Замок. Інший текст.');
+  if (staleText.status === 0 || !staleText.stderr.includes('different text or resources'))
+    throw new Error(`CLI accepted a review file for changed text: ${staleText.stdout}${staleText.stderr}`);
+  const staleResources = runReviewCli(['--apply-review', reviewFile], reviewInput, changedReviewDictionary);
+  if (staleResources.status === 0 || !staleResources.stderr.includes('different resource snapshot'))
+    throw new Error(`CLI accepted a review file for changed resources: ${staleResources.stdout}${staleResources.stderr}`);
+  review.occurrences[0].choice = 2;
+  writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
+  const invalidChoice = runReviewCli(['--apply-review', reviewFile], reviewInput);
+  if (invalidChoice.status === 0 || !invalidChoice.stderr.includes('must be 0, 1, or null'))
+    throw new Error(`CLI accepted an invalid review choice: ${invalidChoice.stdout}${invalidChoice.stderr}`);
   console.log(`packed install smoke passed (${packed.filename}, ${packed.size} bytes)`);
 } finally {
   rmSync(temp, { recursive: true, force: true });

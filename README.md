@@ -24,7 +24,8 @@
 | Перевірка TSV, походження лексиконного рядка й trace джерела наголосу | ✅
 | Слова поза словником через LLM (`resolveUnknown`) | ✅ |
 | SKILL.md для агентів | ✅ `skills/ua-voiceover-prep/` |
-| Публікація (npm, skills.sh) | ⏳ — цей робочий стан не опублікований |
+| Публікація | ✅ npm `0.15.0`; скіл проіндексований на skills.sh |
+| Перегляд омонімів у CLI | ✅ експорт/застосування вибору для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
 
@@ -229,17 +230,13 @@ npx skills add MykytaStel/ua-tts-text
 
 ## Інтеграція у Content Factory
 
-Інтеграція у Content Factory зберігає цей пакет у `packages/ua-tts-text`; npm-публікація лишається окремим релізним кроком:
-
-- `packages/providers/src/tts-text-prep.ts` готує абзаци до синтезу (числа, дати, наголоси, лексикон);
-- `tts-uk.ts` передає готовий текст Python-скрипту з прапорцем `prepared: true`, і той лише синтезує;
-- якщо словника на машині немає — працює старий Python `prepare()`, тобто деградація плавна.
-
-End-to-end перевірка на `tts-uk` (M1 Pro, CPU): вхід «У 1675 році на 5 км шляху — 22% вологи. Замок стоїть на горі.»
-→ 9 с аудіо. Зразки: `samples/prepared-tts-uk.wav` (новий шлях) і `samples/fallback-tts-uk.wav` (старий).
+Content Factory споживає пакет як npm-залежність. Після публікації нової версії
+оновлюються версія залежності й lockfile у Studio; runtime-підготовка користується
+спільним API пакета та відбитком ресурсів для ідентичності кешу синтезу.
 
 Словник і лексикон для рантайму лежать у `~/.local/share/ua-tts-text/` (шляхи перекриваються
-`UA_TTS_DICT` і `UA_TTS_LEXICON`).
+`UA_TTS_DICT`, `UA_TTS_LEXICON` і `UA_TTS_HOME`). Пакет можна використовувати окремо
+від Studio через CLI або програмний API.
 
 ## CLI
 
@@ -249,6 +246,22 @@ node scripts/cli.mjs --engine tts-uk < script.txt
 node scripts/cli.mjs --engine tts-uk --decisions corpus/decisions.json < script.txt
 node scripts/cli.mjs --engine piper-high --json < script.txt
 ```
+
+### Перегляд омонімів по входженнях (CLI у 0.15.0)
+
+Експортуй контекст і два варіанти прочитання, впиши `0` (перший варіант) або
+`1` (другий) у поле `choice`, а потім застосуй файл до того самого тексту:
+
+```bash
+ua-tts-text --engine tts-uk --review-out review.json < script.txt
+# у review.json заповнити choice для потрібних входжень
+ua-tts-text --engine tts-uk --apply-review review.json < script.txt > prepared.txt
+```
+
+Файл прив'язаний до нормалізованого тексту, рушія та fingerprint ресурсів.
+Якщо змінилися текст, словник чи лексикон, CLI відхилить файл і повідомить,
+що треба створити новий review.
+Невибрані входження лишаються омонімами у звіті.
 
 ## Словник
 
