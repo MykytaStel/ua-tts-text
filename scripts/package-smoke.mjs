@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /** Verify the packed npm archive through a clean local install. */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = mkdtempSync(path.join(os.tmpdir(), 'ua-tts-package-smoke-'));
-const npmEnv = { ...process.env, npm_config_cache: path.join(temp, 'npm-cache') };
+const npmEnv = {
+  ...process.env,
+  npm_config_cache: path.join(temp, 'npm-cache'),
+  // The smoke test must create an archive even when called by `npm publish --dry-run`.
+  npm_config_dry_run: 'false',
+};
 try {
   execFileSync('pnpm', ['build'], { cwd: root, stdio: 'inherit' });
   const packed = JSON.parse(
@@ -29,6 +34,11 @@ try {
   );
 
   const installed = path.join(consumer, 'node_modules', 'ua-tts-text');
+  const binSuffix = process.platform === 'win32' ? '.cmd' : '';
+  for (const name of ['ua-tts-text', 'ua-tts-text-fetch-dict']) {
+    const executable = path.join(consumer, 'node_modules', '.bin', `${name}${binSuffix}`);
+    if (!existsSync(executable)) throw new Error(`installed executable is missing: ${name}`);
+  }
   const names = path.join(temp, 'project-names.tsv');
   writeFileSync(names, 'Кодове\tКо́дове\tперсонаж\tmanual smoke check\tfixture\tКодове\tverified\n');
   const nodeResult = spawnSync(

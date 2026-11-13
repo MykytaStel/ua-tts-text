@@ -62,8 +62,8 @@
   },
   "homepage": "https://github.com/MykytaStel/ua-tts-text#readme",
   "bin": {
-    "ua-tts-text": "./scripts/cli.mjs",
-    "ua-tts-text-fetch-dict": "./scripts/fetch-dict.mjs"
+    "ua-tts-text": "scripts/cli.mjs",
+    "ua-tts-text-fetch-dict": "scripts/fetch-dict.mjs"
   },
   "publishConfig": {
     "access": "public"
