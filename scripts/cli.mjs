@@ -7,19 +7,44 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { loadResources, createOpenAiAsker, lint, prepare, prepareMany } from '../dist/index.js';
+import { loadResources, createOpenAiAsker, lint, normalize, prepare, prepareMany } from '../dist/index.js';
 
 const REVIEW_FORMAT = 'ua-tts-text-review';
-const REVIEW_VERSION = 1;
+const REVIEW_VERSION = 2;
 
-function reviewOccurrences(homographs) {
-  return homographs.map(({ word, offset, key, variants, context }) => {
-    if (!Number.isInteger(offset)) throw new Error(`homograph "${word}" has no usable occurrence offset`);
-    return { id: `0:${offset}`, key, word, context, variants };
-  });
+function sentenceAt(text, index) {
+  const boundary = /[.!?\n]/gu;
+  let start = 0;
+  for (const match of text.matchAll(boundary)) {
+    const end = match.index + match[0].length;
+    if (end <= index) start = end;
+    else break;
+  }
+  const rest = text.slice(index);
+  const tail = rest.search(/[.!?\n]/u);
+  const end = tail === -1 ? text.length : index + tail;
+  return text.slice(start, end).trim();
 }
 
-function readReview(file, { engine, resources, batch }) {
+function reviewOccurrences(result, text) {
+  const homographs = result.homographs.map(({ word, offset, key, variants, context }) => {
+    if (!Number.isInteger(offset)) throw new Error(`homograph "${word}" has no usable occurrence offset`);
+    return { kind: 'homograph', id: `0:${offset}`, key, word, context, variants };
+  });
+  const unknownWords = (result.evidence ?? [])
+    .filter((item) => item.source === 'unknown')
+    .map(({ word, offset }) => ({
+      kind: 'unknown',
+      id: `0:${offset}`,
+      key: word.toLocaleLowerCase('uk-UA'),
+      word,
+      context: sentenceAt(text, offset),
+      vowels: [...word].flatMap((letter, position) => (/[аеєиіїоуяю]/iu.test(letter) ? [{ position, letter }] : [])),
+    }));
+  return [...homographs, ...unknownWords].sort((left, right) => Number(left.id.split(':')[1]) - Number(right.id.split(':')[1]));
+}
+
+function readReview(file, { engine, resources, batch, text }) {
   const review = JSON.parse(readFileSync(path.resolve(file), 'utf8'));
   if (!review || typeof review !== 'object' || Array.isArray(review)) throw new Error('review file must contain a JSON object');
   if (review.format !== REVIEW_FORMAT || review.version !== REVIEW_VERSION)
@@ -31,31 +56,42 @@ function readReview(file, { engine, resources, batch }) {
     throw new Error('review file belongs to different text or resources; export a new review file');
   if (!Array.isArray(review.occurrences)) throw new Error('review file is missing its occurrences array');
 
-  const current = new Map(reviewOccurrences(batch.results[0].homographs).map((item) => [item.id, item]));
+  const current = new Map(reviewOccurrences(batch.results[0], text).map((item) => [item.id, item]));
   const seen = new Set();
   const occurrenceDecisions = {};
+  const occurrenceOverrides = {};
   for (const item of review.occurrences) {
     if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.id !== 'string')
       throw new Error('each review occurrence must be an object with an id');
     if (seen.has(item.id)) throw new Error(`duplicate review occurrence: ${item.id}`);
     seen.add(item.id);
     const expected = current.get(item.id);
-    if (
-      !expected ||
-      item.key !== expected.key ||
-      item.word !== expected.word ||
-      item.context !== expected.context ||
-      !Array.isArray(item.variants) ||
-      item.variants.length !== expected.variants.length ||
-      item.variants.some((variant, index) => variant !== expected.variants[index])
-    )
+    if (!expected || item.kind !== expected.kind || item.key !== expected.key || item.word !== expected.word || item.context !== expected.context)
       throw new Error(`review occurrence ${item.id} no longer matches the current text; export a new review file`);
-    if (item.choice !== null && item.choice !== 0 && item.choice !== 1)
-      throw new Error(`choice for ${item.id} must be 0, 1, or null`);
-    if (item.choice !== null) occurrenceDecisions[item.id] = item.choice;
+    if (expected.kind === 'homograph') {
+      if (
+        !Array.isArray(item.variants) ||
+        item.variants.length !== expected.variants.length ||
+        item.variants.some((variant, index) => variant !== expected.variants[index])
+      )
+        throw new Error(`review occurrence ${item.id} no longer matches the current text; export a new review file`);
+      if (item.choice !== null && item.choice !== 0 && item.choice !== 1)
+        throw new Error(`choice for ${item.id} must be 0, 1, or null`);
+      if (item.choice !== null) occurrenceDecisions[item.id] = item.choice;
+    } else {
+      if (
+        !Array.isArray(item.vowels) ||
+        item.vowels.length !== expected.vowels.length ||
+        item.vowels.some((vowel, index) => vowel?.position !== expected.vowels[index].position || vowel?.letter !== expected.vowels[index].letter)
+      )
+        throw new Error(`review occurrence ${item.id} no longer matches the current text; export a new review file`);
+      if (item.stressPosition !== null && !expected.vowels.some((vowel) => vowel.position === item.stressPosition))
+        throw new Error(`stressPosition for ${item.id} must match one of the listed vowels, or be null`);
+      if (item.stressPosition !== null) occurrenceOverrides[item.id] = item.stressPosition;
+    }
   }
   if (seen.size !== current.size) throw new Error('review file is missing occurrences; export a new review file');
-  return occurrenceDecisions;
+  return { occurrenceDecisions, occurrenceOverrides };
 }
 
 function arg(name, fallback) {
@@ -116,7 +152,7 @@ const base = {
   resources,
   engine,
   ...(disableContext ? { context: null } : {}),
-  stress: { decisions, trace: process.argv.includes('--explain') },
+  stress: { decisions, trace: process.argv.includes('--explain') || Boolean(reviewOutArg || applyReviewArg) },
 };
 
 let batch;
@@ -124,18 +160,25 @@ let reviewSummary;
 let result;
 if (applyReviewArg) {
   const preview = await prepareMany([input.trim()], base);
-  const occurrenceDecisions = readReview(applyReviewArg, { engine, resources, batch: preview });
+  const reviewChoices = readReview(applyReviewArg, {
+    engine,
+    resources,
+    batch: preview,
+    text: normalize(input.trim()),
+  });
   batch = await prepareMany([input.trim()], {
     ...base,
-    occurrenceDecisions,
+    ...reviewChoices,
     expectedDecisionFingerprint: preview.decisionFingerprint,
   });
   result = batch.results[0];
   reviewSummary = {
     mode: 'applied',
     file: path.resolve(applyReviewArg),
-    applied: Object.keys(occurrenceDecisions).length,
-    unresolved: result.homographs.length,
+    appliedHomographs: Object.keys(reviewChoices.occurrenceDecisions).length,
+    appliedUnknownWords: Object.keys(reviewChoices.occurrenceOverrides).length,
+    unresolvedHomographs: result.homographs.length,
+    unresolvedUnknownWords: result.evidence?.filter((item) => item.source === 'unknown').length ?? 0,
     decisionFingerprint: batch.decisionFingerprint,
   };
 } else if (reviewOutArg || ask) {
@@ -158,7 +201,9 @@ if (applyReviewArg) {
       engine,
       decisionFingerprint: batch.decisionFingerprint,
       resourceFingerprint: resources.manifest.fingerprint,
-      occurrences: reviewOccurrences(result.homographs).map((item) => ({ ...item, choice: null })),
+      occurrences: reviewOccurrences(result, normalize(input.trim())).map((item) =>
+        item.kind === 'homograph' ? { ...item, choice: null } : { ...item, stressPosition: null },
+      ),
     };
     const file = path.resolve(reviewOutArg);
     writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`);
@@ -177,7 +222,9 @@ if (ask && batch) console.error(`резолвер: ${result.homographs.length} �
 if (reviewSummary?.mode === 'exported')
   console.error(`файл перегляду: ${reviewSummary.file} · входжень: ${reviewSummary.occurrences}`);
 if (reviewSummary?.mode === 'applied')
-  console.error(`застосовано рішень: ${reviewSummary.applied} · лишилось нерозв'язаними: ${reviewSummary.unresolved}`);
+  console.error(
+    `застосовано рішень: омонімів ${reviewSummary.appliedHomographs}, невідомих слів ${reviewSummary.appliedUnknownWords} · лишилось нерозв'язаними: омонімів ${reviewSummary.unresolvedHomographs}, невідомих слів ${reviewSummary.unresolvedUnknownWords}`,
+  );
 const issues = lint(result.text);
 
 if (asJson) {
