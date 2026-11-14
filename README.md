@@ -24,7 +24,8 @@
 | Перевірка TSV, походження лексиконного рядка й trace джерела наголосу | ✅
 | Слова поза словником через LLM (`resolveUnknown`) | ✅ |
 | SKILL.md для агентів | ✅ `skills/ua-voiceover-prep/` |
-| Публікація | 🕒 `0.15.0` підготовлено; npm publish очікує ручного 2FA-підтвердження |
+| Сліпе A/B аудіо для двох версій | ✅ нова команда `ua-tts-text-blind-audio` у `0.16.0` |
+| Публікація | ✅ npm `0.15.0`; `0.16.0` готується |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
@@ -374,4 +375,21 @@ on the regression corpus is not an independent held-out or listening assessment.
 
 ## Оцінювання
 
-`pnpm test` запускає модульні тести зі словником і без нього, перевірки TSV, оцінювача, рецензування входжень, побудови словника й точні fixtures нормалізації. `node scripts/package-smoke.mjs` пакує npm-архів, встановлює його в тимчасовий каталог і перевіряє API та CLI. `pnpm eval` оцінює регресійний gold-набір; `pnpm eval:normalization` повторно перевіряє очікувані виходи нормалізатора. Метрика наголосів вимагає точного набору позначок у кожному входженні; окремо фіксується збереження послідовності слів. Див. [evaluation/README.md](evaluation/README.md): ці fixtures не є незалежним holdout і не замінюють сліпе аудіювання.
+`pnpm test` запускає модульні тести зі словником і без нього, перевірки TSV, оцінювача, рецензування входжень, побудови словника, сліпого A/B пакета й точні fixtures нормалізації. `node scripts/package-smoke.mjs` пакує npm-архів, встановлює його в тимчасовий каталог і перевіряє API та всі CLI.
+
+`pnpm eval` оцінює регресійний gold-набір; `pnpm eval:normalization` повторно перевіряє точні виходи нормалізатора. Для незалежного аудіювання підготуй приватний маніфест із двома WAV для кожного holdout-прикладу:
+
+```bash
+npx ua-tts-text-blind-audio prepare \
+  --manifest evaluation/private/study.json \
+  --outdir evaluation/private/blind-study
+# передай слухачу тільки evaluation/private/blind-study/participant/
+npx ua-tts-text-blind-audio score \
+  --key evaluation/private/blind-study/organizer/key.json \
+  --responses evaluation/private/blind-study/participant/responses.json \
+  --out evaluation/private/blind-study/organizer/report.json
+```
+
+Команда приймає лише PCM або IEEE-float WAV, перемішує приклади й збалансовано призначає сторони A/B, прибирає RIFF-теги з копій та зберігає версійний ключ лише в `organizer/`. Папка `evaluation/private/` виключена з Git. Оцінки є описовими для конкретного прослуховування; інструмент не оголошує статистичну значущість або загальну якість за одним набором.
+
+Повна схема маніфесту й процедура описані в [evaluation/README.md](evaluation/README.md). Золоті fixtures залишаються регресійними, не є незалежним holdout і не замінюють сліпе аудіювання.

@@ -57,10 +57,16 @@ try {
 
   const installed = path.join(consumer, 'node_modules', 'ua-tts-text');
   const binSuffix = process.platform === 'win32' ? '.cmd' : '';
-  for (const name of ['ua-tts-text', 'ua-tts-text-fetch-dict']) {
+  for (const name of ['ua-tts-text', 'ua-tts-text-fetch-dict', 'ua-tts-text-blind-audio']) {
     const executable = path.join(consumer, 'node_modules', '.bin', `${name}${binSuffix}`);
     if (!existsSync(executable)) throw new Error(`installed executable is missing: ${name}`);
   }
+  const blindAudioScript = path.join(installed, 'scripts/blind-audio.mjs');
+  const blindAudioHelp = execFileSync(process.execPath, [blindAudioScript, '--help'], {
+    cwd: temp,
+    encoding: 'utf8',
+  });
+  if (!blindAudioHelp.includes('prepare --manifest')) throw new Error(`installed blind-audio CLI smoke failed: ${JSON.stringify({ blindAudioScript, blindAudioHelp })}`);
   const names = path.join(temp, 'project-names.tsv');
   writeFileSync(names, 'Кодове\tКо́дове\tперсонаж\tmanual smoke check\tfixture\tКодове\tverified\n');
   const nodeResult = spawnSync(
