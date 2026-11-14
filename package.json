@@ -1,6 +1,6 @@
 {
   "name": "ua-tts-text",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Готує український текст до озвучки: числа, роки, скорочення, наголоси під конкретний рушій",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,7 @@
     "lexicon",
     "skills",
     "scripts/cli.mjs",
+    "scripts/blind-audio.mjs",
     "scripts/fetch-dict.mjs",
     "scripts/build-dict.mjs",
     "scripts/dictionary-source.json",
@@ -27,13 +28,14 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run && node --test scripts/audit-review.check.mjs scripts/evaluation.check.mjs scripts/dictionary.check.mjs && node scripts/normalization-eval.mjs",
+    "test": "vitest run && node --test scripts/audit-review.check.mjs scripts/evaluation.check.mjs scripts/dictionary.check.mjs scripts/blind-audio.check.mjs && node scripts/normalization-eval.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build && pnpm typecheck && pnpm test && node scripts/package-smoke.mjs",
     "prepack": "pnpm build",
     "eval": "node scripts/eval.mjs",
-    "eval:normalization": "node scripts/normalization-eval.mjs"
+    "eval:normalization": "node scripts/normalization-eval.mjs",
+    "eval:blind": "node scripts/blind-audio.mjs"
   },
   "keywords": [
     "ukrainian",
@@ -63,7 +65,8 @@
   "homepage": "https://github.com/MykytaStel/ua-tts-text#readme",
   "bin": {
     "ua-tts-text": "scripts/cli.mjs",
-    "ua-tts-text-fetch-dict": "scripts/fetch-dict.mjs"
+    "ua-tts-text-fetch-dict": "scripts/fetch-dict.mjs",
+    "ua-tts-text-blind-audio": "scripts/blind-audio.mjs"
   },
   "publishConfig": {
     "access": "public"
