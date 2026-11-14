@@ -15,6 +15,7 @@ import {
   yearWords,
   type Gender,
 } from './numbers.js';
+import type { NormalizationRules } from './normalization-rules.js';
 
 export interface NormalizeOptions {
   /** Розгортати «ст.», «тис.», «т.д.» тощо. */
@@ -23,6 +24,8 @@ export interface NormalizeOptions {
   acronyms?: boolean;
   /** Прибирати дужки, лапки, тире й двокрапки — TTS їх не читає, але спотикається. */
   punctuation?: boolean;
+  /** Verified project-specific literal readings; null disables resource-provided rules. */
+  rules?: NormalizationRules | null;
 }
 
 const MONTHS_GENITIVE: Record<string, string> = {
@@ -117,7 +120,7 @@ const ACRONYMS: Readonly<Record<string, string>> = {
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Protect strings whose spelling carries identity rather than a quantity. */
-function protectSpeechAtoms(input: string): { text: string; restore: (text: string) => string } {
+function protectSpeechAtoms(input: string, rules?: NormalizationRules | null): { text: string; restore: (text: string) => string } {
   const atoms: string[] = [];
   const token = (value: string) => {
     const id = atoms.push(value) - 1;
@@ -147,6 +150,7 @@ function protectSpeechAtoms(input: string): { text: string; restore: (text: stri
     const phoneLike = match.startsWith('+') || /[ ().-]/u.test(match) || (/^0/u.test(digits) && digits.length >= 10);
     return digits.length >= 9 && phoneLike ? token(match) : match;
   });
+  if (rules) text = rules.apply(text, token);
   return { text, restore: (value) => value.replace(/[\uE100-\uF9FF]/gu, (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark) };
 }
 
@@ -451,7 +455,8 @@ function cleanPunctuation(text: string): string {
 export function normalize(input: string, options: NormalizeOptions = {}): string {
   const { abbreviations = true, acronyms = true, punctuation = true } = options;
 
-  const protectedInput = protectSpeechAtoms(input.normalize('NFC'));
+  const source = input.normalize('NFC').replace(/[\u00a0\u202f]/gu, ' ').replace(/[’ʼ`´]/gu, "'");
+  const protectedInput = protectSpeechAtoms(source, options.rules);
   let text = protectedInput.text;
   text = text.replace(/[\u00a0\u202f]/gu, ' ');
   text = text.replace(/[’ʼ`´]/gu, "'");

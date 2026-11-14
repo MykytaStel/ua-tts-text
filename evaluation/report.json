@@ -1,10 +1,10 @@
 {
   "resources": {
-    "version": "0.15.0",
+    "version": "0.17.0",
     "files": [
       {
         "path": "package.json",
-        "sha256": "4c023035208d56b95ba536b0f9d8e1942d71bab8a0077a92c376e6d0ca483b10"
+        "sha256": "966e5ba3999db5793817ae4f43da3298f887376295dea089576eb2feb15662db"
       },
       {
         "path": "data/dict.bin",
@@ -25,6 +25,10 @@
       {
         "path": "lexicon/context.tsv",
         "sha256": "d3b9000c3503d3f3727c6657584a99537159a93ddb3834a6eef938a9375f49b9"
+      },
+      {
+        "path": "lexicon/normalization.tsv",
+        "sha256": "785c16bd589f7695eee451be7907ac72b1b2b0452b75e84f8b172c8e67269eb1"
       },
       {
         "path": "dist/agent.d.ts",
@@ -60,11 +64,11 @@
       },
       {
         "path": "dist/index.d.ts",
-        "sha256": "5eab5a2adc1612a09c288adbcb0977df22f25c4ce030f79cad163d0c27ca7486"
+        "sha256": "2adf1f9eb7ed140c3e86956f0b54f3196913243d8aa083dd274356add96872e2"
       },
       {
         "path": "dist/index.js",
-        "sha256": "d2c1991acb0062a8a285758b142b52e777547d2d10b9e16ec3d54b70d4cd3693"
+        "sha256": "0d77491faa98c227fe34f18fc9e2b572deeab65c1babb0f077dc538694bab82b"
       },
       {
         "path": "dist/lexicon.d.ts",
@@ -75,12 +79,20 @@
         "sha256": "22b0fd37aebcbf5475bb2211b9d49105b9c79fa3e87427d77e62bc735c89293c"
       },
       {
+        "path": "dist/normalization-rules.d.ts",
+        "sha256": "10235fdc86e50bc9fc7bf9a373bf639e53ac540fd2bd6aa8414dce6faddc3902"
+      },
+      {
+        "path": "dist/normalization-rules.js",
+        "sha256": "4c390fd60a6fcf6db611dab8a99701606356ea48892f0c6da4f9574a5724b59d"
+      },
+      {
         "path": "dist/normalize.d.ts",
-        "sha256": "0fa32724fc3dc9aee7f8d0dd1378b78d7687f7f228469eefec16f7847733e988"
+        "sha256": "4613d3de2bf5b8632dc6250afde2b3323b35baa4a26796c1c324d78ca0a56d85"
       },
       {
         "path": "dist/normalize.js",
-        "sha256": "078b50561e905c9d61dbe199ebc89f0f3ccedd5cfe257fbf5a8e5323c9443edc"
+        "sha256": "4dd7126dd593f4706646e6b900c4d06bad11b4d131740b5c4ab0442e52905afe"
       },
       {
         "path": "dist/numbers.d.ts",
@@ -116,11 +128,11 @@
       },
       {
         "path": "dist/resources.d.ts",
-        "sha256": "94b3a87e00618b0394f5646fdb79d29347f52f7b359ecfcbb47c5d74f0840401"
+        "sha256": "48f12d591ba9990092933d73643051b3f6672ae5a1b64de9e8508e044fcdacb1"
       },
       {
         "path": "dist/resources.js",
-        "sha256": "953a1441e695e5bc2740850a8a132f08da008dfc03cf19ce619c487ea154148d"
+        "sha256": "b27bcf60b2206eeb9a5e87ca5898c47d0df8036da99eb75d80828809f6d0c38b"
       },
       {
         "path": "dist/review.d.ts",
@@ -132,11 +144,11 @@
       },
       {
         "path": "dist/stress.d.ts",
-        "sha256": "7814ce87104d3ea233be840a4cc34e6792fd9518138be2349baa648efc0dcddf"
+        "sha256": "5882eef86d011556fa8efc8501bc64c98d98c27599a723ff9399877878326619"
       },
       {
         "path": "dist/stress.js",
-        "sha256": "b911cb0f5c67d33824c47e4d90e7aad27ad27694fc5933a509fd2c8d067fefd0"
+        "sha256": "cc25229f4fc00c8954d16bfa004081cf82ade3827a4b41eb906c429bcef4933d"
       },
       {
         "path": "dist/tokenize.d.ts",
@@ -147,7 +159,7 @@
         "sha256": "e6e23ec64b0a510c47d8eb3d2febac89d38e3f074eb7f3ebac6477d753bb731f"
       }
     ],
-    "fingerprint": "4492db6097302ad015650807e24a21b9c5ab22e560833d1d698046da0ef14fff",
+    "fingerprint": "54a8c9328adfc64553e4af0d8332702dff975f264bbeea975a5c143bd8ffa5de",
     "dictionary": {
       "sha256": "cd0048d206618457362d262f390780004f514bb3f3b0d09b75f665de656ee351",
       "sourceVerified": true,

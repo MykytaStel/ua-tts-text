@@ -19,6 +19,7 @@ export * from './dict.js';
 export * from './lexicon.js';
 export * from './numbers.js';
 export * from './normalize.js';
+export * from './normalization-rules.js';
 export * from './render.js';
 export * from './review.js';
 export * from './agent.js';
@@ -92,6 +93,27 @@ export interface PrepareManyResult {
   decisionFingerprint: string;
 }
 
+function normalizeOptions(options: Pick<PrepareOptions, 'normalize' | 'resources'>): NormalizeOptions | undefined {
+  const rules = options.normalize && Object.hasOwn(options.normalize, 'rules')
+    ? options.normalize.rules
+    : options.resources?.normalization;
+  if (rules === undefined) return options.normalize;
+  return { ...options.normalize, rules };
+}
+
+function normalizeInput(input: string, options: Pick<PrepareOptions, 'normalize' | 'resources'>): string {
+  return normalize(input, normalizeOptions(options));
+}
+
+function effectiveResourceFingerprint(options: Pick<PrepareOptions, 'normalize' | 'resources' | 'stress'>): string | undefined {
+  const base = options.resources?.manifest.fingerprint ?? options.stress?.resourceFingerprint;
+  if (!options.normalize || !Object.hasOwn(options.normalize, 'rules')) return base;
+  const rules = options.normalize.rules;
+  return createHash('sha256')
+    .update(JSON.stringify({ base: base ?? null, normalizationRules: rules?.fingerprint ?? (rules === null ? 'disabled' : 'undefined') }))
+    .digest('hex');
+}
+
 function assertEngine(engine: string): asserts engine is EngineId {
   if (!Object.hasOwn(ENGINES, engine)) throw new Error(`prepare: unknown engine "${engine}"`);
 }
@@ -108,9 +130,9 @@ export async function prepareMany(inputs: readonly string[], options: PrepareMan
   const decisionFingerprint = createHash('sha256')
     .update(
       JSON.stringify({
-        normalizedInputs: inputs.map((input) => normalize(input, options.normalize)),
+        normalizedInputs: inputs.map((input) => normalizeInput(input, options)),
         engine: options.engine ?? null,
-        resourceFingerprint: options.resources?.manifest.fingerprint ?? options.stress?.resourceFingerprint ?? null,
+        resourceFingerprint: effectiveResourceFingerprint(options) ?? null,
       }),
     )
     .digest('hex');
@@ -221,12 +243,12 @@ function withoutDecided(context: ContextSource, decided: Readonly<Record<string,
 /** Нормалізація + наголоси під рушій. */
 export function prepare(input: string, options: PrepareOptions = {}): PrepareResult {
   if (options.engine !== undefined) assertEngine(options.engine);
-  const normalized = normalize(input, options.normalize);
+  const normalized = normalizeInput(input, options);
 
   const dictionary = options.dictionary ?? options.resources?.dictionary;
   const lexicon = options.lexicon ?? options.stress?.lexicon ?? options.resources?.lexicon;
   const context = options.context !== undefined ? options.context ?? undefined : options.stress?.context ?? options.resources?.context;
-  const resourceFingerprint = options.resources?.manifest.fingerprint ?? options.stress?.resourceFingerprint;
+  const resourceFingerprint = effectiveResourceFingerprint(options);
   if (!dictionary && !lexicon) {
     const engine = options.engine ?? null;
     const symbol = engine ? ENGINES[engine].symbol : 'acute';

@@ -2,8 +2,9 @@
 
 ## Що готове
 
-- Пакет збирається: `pnpm build` → `dist/`, `npm pack` дає 36 кБ, 35 файлів.
-- Перевірено встановленням тарболу в чисту теку: `npx ua-tts-text --engine tts-uk` працює.
+- Пакет збирається через `pnpm build`; `pnpm prepublishOnly` перевіряє збірку,
+  тести, дані й установлення з локального npm-архіву.
+- Smoke-перевірка встановленого архіву перевіряє API та доступні CLI-команди.
 - Ліцензія MIT, `LICENSE` на місці.
 - Скіл лежить у `skills/ua-voiceover-prep/SKILL.md` (формат Agent Skills).
 
@@ -12,7 +13,8 @@
 - [x] GitHub: https://github.com/MykytaStel/ua-tts-text (публічний, топіки додано)
 - [x] CI: тести зі словником і без нього
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
-- [x] npm: https://www.npmjs.com/package/ua-tts-text (`0.15.0`, this release)
+- [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.15.0` за перевіркою 2026-11-14)
+- [x] Git tag `v0.16.0` створений; публікацію `0.16.0` ще не підтверджено в npm
 
 ## Крок 1. GitHub (зроблено)
 
@@ -30,7 +32,7 @@ gh repo edit MykytaStel/ua-tts-text \
   --add-topic ukrainian --add-topic tts --add-topic text-normalization
 ```
 
-## Крок 2. npm (зроблено)
+## Крок 2. npm
 
 ```bash
 npm publish
