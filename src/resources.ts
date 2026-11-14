@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { ContextRules } from './context.js';
 import { StressDictionary } from './dict.js';
 import { Lexicon } from './lexicon.js';
+import { NormalizationRules } from './normalization-rules.js';
 
 export interface ResourceOptions {
   home?: string;
   dictionaryPath?: string;
   lexiconPath?: string;
+  normalizationPath?: string;
   packageRoot?: string;
   /** Fail closed when the dictionary is absent. */
   required?: boolean;
@@ -31,13 +33,18 @@ export interface Resources {
   readonly dictionary?: StressDictionary;
   readonly lexicon: Lexicon;
   readonly context: ContextRules;
+  /** Optional on user-created snapshots for backwards compatibility; loadResources always provides it. */
+  readonly normalization?: NormalizationRules;
   readonly manifest: ResourceManifest;
 }
-let cached: { key: string; resources: Resources } | undefined;
+export interface LoadedResources extends Resources {
+  readonly normalization: NormalizationRules;
+}
+let cached: { key: string; resources: LoadedResources } | undefined;
 const hash = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 
 /** Bundled defaults + local overrides, read and hashed as one stable snapshot. */
-export function loadResources(options: ResourceOptions = {}): Resources {
+export function loadResources(options: ResourceOptions = {}): LoadedResources {
   const root = options.packageRoot ?? fileURLToPath(new URL('..', import.meta.url));
   const home = options.home ?? process.env['UA_TTS_HOME'] ?? path.join(homedir(), '.local/share/ua-tts-text');
   const dict = path.resolve(
@@ -50,6 +57,11 @@ export function loadResources(options: ResourceOptions = {}): Resources {
   const names = path.resolve(options.lexiconPath ?? process.env['UA_TTS_LEXICON'] ?? path.join(home, 'names.tsv'));
   if ((options.lexiconPath || process.env['UA_TTS_LEXICON']) && !existsSync(names))
     throw new Error(`ua-tts-text: lexicon missing: ${names}`);
+  const normalizationPath = path.resolve(
+    options.normalizationPath ?? process.env['UA_TTS_NORMALIZATION'] ?? path.join(home, 'normalization.tsv'),
+  );
+  if ((options.normalizationPath || process.env['UA_TTS_NORMALIZATION']) && !existsSync(normalizationPath))
+    throw new Error(`ua-tts-text: normalization rules missing: ${normalizationPath}`);
 
   const unique = (files: string[]) => [...new Set(files.map((file) => path.resolve(file)))].filter(existsSync);
   const lexicons = unique([
@@ -59,6 +71,7 @@ export function loadResources(options: ResourceOptions = {}): Resources {
     names,
   ]);
   const contexts = unique([path.join(path.dirname(names), 'context.tsv'), path.join(root, 'lexicon/context.tsv')]);
+  const normalizationFiles = unique([path.join(root, 'lexicon/normalization.tsv'), normalizationPath]);
   const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
   const runtimeFiles = readdirSync(runtimeDirectory)
     .filter((file) => /\.(?:js|ts)$/u.test(file))
@@ -71,13 +84,14 @@ export function loadResources(options: ResourceOptions = {}): Resources {
     ...(dictionaryManifest ? [dictionaryManifest] : []),
     ...lexicons,
     ...contexts,
+    ...normalizationFiles,
     ...runtimeFiles,
   ]);
   const fileState = files.map((file) => {
     const stat = statSync(file);
     return [file, stat.size, stat.mtimeMs, stat.ctimeMs];
   });
-  const key = JSON.stringify({ dict, lexicons, contexts, fileState });
+  const key = JSON.stringify({ dict, lexicons, contexts, normalizationFiles, fileState });
   if (cached?.key === key) return cached.resources;
 
   // Parse the exact bytes whose hashes enter the manifest; no later file read can mix versions.
@@ -97,6 +111,8 @@ export function loadResources(options: ResourceOptions = {}): Resources {
   for (const file of lexicons) lexicon.merge(Lexicon.parseTsv(snapshots.get(file)!.toString('utf8'), file));
   const context = new ContextRules();
   for (const file of contexts) context.addTsv(snapshots.get(file)!.toString('utf8'), file);
+  const normalization = new NormalizationRules();
+  for (const file of normalizationFiles) normalization.merge(NormalizationRules.parseTsv(snapshots.get(file)!.toString('utf8'), file));
 
   const dictionaryBytes = snapshots.get(dict);
   const dictionarySha256 = dictionaryBytes ? hash(dictionaryBytes) : undefined;
@@ -134,10 +150,11 @@ export function loadResources(options: ResourceOptions = {}): Resources {
         }
       : {}),
   });
-  const resources: Resources = Object.freeze({
+  const resources: LoadedResources = Object.freeze({
     ...(snapshots.has(dict) ? { dictionary: StressDictionary.loadBuffer(snapshots.get(dict)!) } : {}),
     lexicon: lexicon.seal(),
     context: context.seal(),
+    normalization: normalization.seal(),
     manifest,
   });
   cached = { key, resources };

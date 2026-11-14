@@ -68,16 +68,18 @@ try {
   });
   if (!blindAudioHelp.includes('prepare --manifest')) throw new Error(`installed blind-audio CLI smoke failed: ${JSON.stringify({ blindAudioScript, blindAudioHelp })}`);
   const names = path.join(temp, 'project-names.tsv');
+  const normalization = path.join(temp, 'project-normalization.tsv');
   writeFileSync(names, 'Кодове\tКо́дове\tперсонаж\tmanual smoke check\tfixture\tКодове\tverified\n');
+  writeFileSync(normalization, 'АТБ\tа-те-бе\tpackage smoke glossary\tverified\n');
   const nodeResult = spawnSync(
     process.execPath,
     [
       '--input-type=module',
       '-e',
       `import { loadResources, prepare } from ${JSON.stringify(path.join(installed, 'dist/index.js'))};` +
-        `const resources = loadResources({ packageRoot: ${JSON.stringify(installed)}, home: ${JSON.stringify(path.join(temp, 'home'))}, dictionaryPath: ${JSON.stringify(path.join(temp, 'missing-dict.bin'))}, lexiconPath: ${JSON.stringify(names)} });` +
-        `const result = prepare('Кодове', { resources, engine: 'piper-medium' });` +
-        `if (result.text !== 'Ко́дове' || result.resourceFingerprint !== resources.manifest.fingerprint) throw new Error('installed API smoke failed: ' + JSON.stringify(result));`,
+        `const resources = loadResources({ packageRoot: ${JSON.stringify(installed)}, home: ${JSON.stringify(path.join(temp, 'home'))}, dictionaryPath: ${JSON.stringify(path.join(temp, 'missing-dict.bin'))}, lexiconPath: ${JSON.stringify(names)}, normalizationPath: ${JSON.stringify(normalization)} });` +
+        `const result = prepare('Кодове АТБ 15', { resources, engine: 'piper-medium' });` +
+        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary') throw new Error('installed API smoke failed: ' + JSON.stringify(result));`,
     ],
     { cwd: temp, encoding: 'utf8' },
   );
