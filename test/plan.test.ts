@@ -8,6 +8,12 @@ describe('план мовлення', () => {
     expect(plan.segments.map((s) => s.pauseAfterMs)).toEqual([220, 480, 0]);
   });
 
+  it('не ставить паузу всередині часу й десяткового числа', () => {
+    const plan = planSpeech('Зустріч о 12:30. Ціна 1,5 грн.');
+    expect(plan.segments.map((segment) => segment.text)).toEqual(['Зустріч о 12:30.', 'Ціна 1,5 грн.']);
+    expect(plan.segments.every((segment) => segment.words > 0)).toBe(true);
+  });
+
   it('визначає тип речення', () => {
     const plan = planSpeech('Хто це? Це він! Гаразд.');
     expect(plan.segments.map((s) => s.kind)).toEqual(['question', 'exclamation', 'statement']);

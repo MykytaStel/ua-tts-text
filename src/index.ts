@@ -13,6 +13,7 @@ import { resolveOccurrences, resolveUnknown, type Asker, type ResolveOptions } f
 import type { Decisions } from './agent.js';
 import { convertStressMarks, type StressEvidence, type StressOptions } from './stress.js';
 import type { Resources } from './resources.js';
+import { scanSemanticSpans, type SemanticKind } from './semantic.js';
 
 export * from './context.js';
 export * from './dict.js';
@@ -28,6 +29,7 @@ export * from './plan.js';
 export * from './stress.js';
 export * from './resources.js';
 export * from './tokenize.js';
+export * from './semantic.js';
 
 export interface PrepareOptions {
   /** Рушій, під який готуємо. Без нього текст лише нормалізується. */
@@ -61,13 +63,16 @@ export interface PrepareResult {
   contextual: number;
   evidence?: StressEvidence[];
   resourceFingerprint?: string;
+  /** Numeric/date/time spans that were preserved because the input is invalid or ambiguous. */
+  semanticFindings?: Array<{ readonly kind: SemanticKind; readonly raw: string; readonly offset: number; readonly message: string }>;
 }
 
 export type PreparedFinding =
   | { readonly kind: 'lint'; readonly issue: Issue }
   | { readonly kind: 'ambiguous'; readonly word: string; readonly offset: number }
   | { readonly kind: 'unknown-word'; readonly word: string }
-  | { readonly kind: 'resource'; readonly warning: string };
+  | { readonly kind: 'resource'; readonly warning: string }
+  | { readonly kind: 'semantic'; readonly spanKind: SemanticKind; readonly raw: string; readonly offset: number; readonly message: string };
 
 export interface PreparedCheckResult {
   readonly passed: boolean;
@@ -76,12 +81,15 @@ export interface PreparedCheckResult {
 
 /** Shared readiness gate for CLI, Studio, and other synthesis integrations. */
 export function checkPrepared(
-  result: Pick<PrepareResult, 'text' | 'ambiguousOccurrences' | 'unknown' | 'warnings'>,
+  result: Pick<PrepareResult, 'text' | 'ambiguousOccurrences' | 'unknown' | 'warnings' | 'semanticFindings'>,
 ): PreparedCheckResult {
   const findings: PreparedFinding[] = [
     ...lint(result.text).map((issue) => Object.freeze({ kind: 'lint' as const, issue: Object.freeze(issue) })),
     ...result.ambiguousOccurrences.map(({ word, offset }) => Object.freeze({ kind: 'ambiguous' as const, word, offset })),
     ...result.unknown.map((word) => Object.freeze({ kind: 'unknown-word' as const, word })),
+    ...(result.semanticFindings ?? []).map(({ kind: spanKind, raw, offset, message }) =>
+      Object.freeze({ kind: 'semantic' as const, spanKind, raw, offset, message }),
+    ),
     ...result.warnings
       .filter((warning) => /dictionary missing|malformed entries ignored/iu.test(warning))
       .map((warning) => Object.freeze({ kind: 'resource' as const, warning })),
@@ -270,6 +278,10 @@ function withoutDecided(context: ContextSource, decided: Readonly<Record<string,
 export function prepare(input: string, options: PrepareOptions = {}): PrepareResult {
   if (options.engine !== undefined) assertEngine(options.engine);
   const normalized = normalizeInput(input, options);
+  const activeRules = normalizeOptions(options)?.rules;
+  const semanticFindings = scanSemanticSpans(input)
+    .filter((span) => span.kind === 'ambiguous' && activeRules?.explain(span.raw)?.status !== 'verified')
+    .map((span) => Object.freeze({ kind: span.kind, raw: span.raw, offset: span.start, message: span.reason ?? 'Потрібна перевірка значення фрагмента.' }));
 
   const dictionary = options.dictionary ?? options.resources?.dictionary;
   const lexicon = options.lexicon ?? options.stress?.lexicon ?? options.resources?.lexicon;
@@ -292,6 +304,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
       marked: 0,
       inferred: 0,
       contextual: 0,
+      semanticFindings,
       ...(resourceFingerprint ? { resourceFingerprint } : {}),
     };
   }
@@ -332,6 +345,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
     marked: result.marked,
     inferred: result.inferred,
     contextual: result.contextual,
+    semanticFindings,
     ...(result.evidence ? { evidence: result.evidence } : {}),
     ...(resourceFingerprint ? { resourceFingerprint } : {}),
   };

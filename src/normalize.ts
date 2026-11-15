@@ -16,6 +16,7 @@ import {
   type Gender,
 } from './numbers.js';
 import type { NormalizationRuleApplication, NormalizationRules } from './normalization-rules.js';
+import { scanSemanticSpans, type SemanticKind } from './semantic.js';
 
 export interface NormalizeOptions {
   /** Розгортати «ст.», «тис.», «т.д.» тощо. */
@@ -31,6 +32,8 @@ export interface NormalizeOptions {
 export type NormalizationTraceStage =
   | 'unicode'
   | 'project-rule'
+  | 'time'
+  | 'fraction'
   | 'digit-groups'
   | 'ordinal-date'
   | 'ordinal'
@@ -51,11 +54,14 @@ export type NormalizationTraceStage =
 
 export interface NormalizationTraceStep {
   readonly stage: NormalizationTraceStage;
-  /** The matched fragment before this pass; offsets are relative to the pass and are not exposed. */
+  /** The matched fragment before this pass. */
   readonly before: string;
   readonly after: string;
   readonly explanation: string;
   readonly source?: string;
+  /** UTF-16 range in the original input when the typed scanner recognized the span. */
+  readonly sourceStart?: number;
+  readonly sourceEnd?: number;
 }
 
 export interface NormalizeTraceResult {
@@ -69,6 +75,8 @@ export interface NormalizeTraceResult {
 const STAGE_EXPLANATIONS: Record<NormalizationTraceStage, string> = {
   unicode: 'Уніфіковано Unicode, пробіл або апостроф.',
   'project-rule': 'Застосовано перевірене проєктне правило читання.',
+  time: 'Час розпізнано як окремий часовий запис.',
+  fraction: 'Дріб прочитано за чисельником і контекстом.',
   'digit-groups': 'Об’єднано групи цифр у числі.',
   'ordinal-date': 'Порядковий номер дати розгорнуто словами.',
   ordinal: 'Порядкове число розгорнуто словами.',
@@ -152,6 +160,11 @@ interface UnitDef {
 
 /** Одиниці, після яких слово узгоджується з числом. */
 const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
+  ['км/год', { forms: ['кілометр за годину', 'кілометри за годину', 'кілометрів за годину'], gender: 'm', genitiveSingular: 'кілометра за годину' }],
+  ['мг/кг', { forms: ['міліграм на кілограм', 'міліграми на кілограм', 'міліграмів на кілограм'], gender: 'm', genitiveSingular: 'міліграма на кілограм' }],
+  ['м²', { forms: ['метр квадратний', 'метри квадратні', 'метрів квадратних'], gender: 'm', genitiveSingular: 'метра квадратного' }],
+  ['км²', { forms: ['кілометр квадратний', 'кілометри квадратні', 'кілометрів квадратних'], gender: 'm', genitiveSingular: 'кілометра квадратного' }],
+  ['см²', { forms: ['сантиметр квадратний', 'сантиметри квадратні', 'сантиметрів квадратних'], gender: 'm', genitiveSingular: 'сантиметра квадратного' }],
   ['км', { forms: ['кілометр', 'кілометри', 'кілометрів'], gender: 'm', genitiveSingular: 'кілометра' }],
   ['см', { forms: ['сантиметр', 'сантиметри', 'сантиметрів'], gender: 'm', genitiveSingular: 'сантиметра' }],
   ['мм', { forms: ['міліметр', 'міліметри', 'міліметрів'], gender: 'm', genitiveSingular: 'міліметра' }],
@@ -205,19 +218,59 @@ const ACRONYMS: Readonly<Record<string, string>> = {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+function semanticStage(kind: SemanticKind): NormalizationTraceStage | undefined {
+  if (kind === 'date') return 'date';
+  if (kind === 'time') return 'time';
+  if (kind === 'fraction') return 'fraction';
+  if (kind === 'ratio') return 'ratio';
+  if (kind === 'identifier') return 'identifier';
+  if (kind === 'decimal') return 'number';
+  return undefined;
+}
+
+function addSemanticTrace(
+  steps: NormalizationTraceStep[] | undefined,
+  stage: NormalizationTraceStage | undefined,
+  span: { raw: string; spoken?: string; start: number; end: number },
+  sourceOffsets: ReadonlyArray<number>,
+): void {
+  if (!steps || !stage || !span.spoken || span.raw === span.spoken) return;
+  steps.push(Object.freeze({
+    stage,
+    before: span.raw,
+    after: span.spoken,
+    explanation: STAGE_EXPLANATIONS[stage],
+    sourceStart: sourceOffsets[span.start] ?? span.start,
+    sourceEnd: sourceOffsets[span.end] ?? span.end,
+  }));
+}
+
+function nfcOffsetMap(input: string): number[] {
+  const offsets = [0];
+  let normalizedLength = 0;
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  for (const { segment, index } of segmenter.segment(input)) {
+    const originalEnd = index + segment.length;
+    normalizedLength += segment.normalize('NFC').length;
+    offsets[normalizedLength] = originalEnd;
+  }
+  return offsets;
+}
+
 /** Protect strings whose spelling carries identity rather than a quantity. */
 function protectSpeechAtoms(
   input: string,
   rules?: NormalizationRules | null,
   traceSteps?: NormalizationTraceStep[],
+  sourceOffsets: ReadonlyArray<number> = [],
 ): {
   text: string;
   restore: (text: string) => string;
   ruleApplications?: ReadonlyArray<NormalizationRuleApplication>;
 } {
   const atoms: string[] = [];
-  const token = (value: string) => {
-    const id = atoms.push(value) - 1;
+  const token = (value: string, spoken = value) => {
+    const id = atoms.push(spoken) - 1;
     if (id >= 0x1900) throw new RangeError('normalize: too many protected strings');
     // A private-use scalar cannot be mistaken for a number by later passes.
     return String.fromCodePoint(0xe100 + id);
@@ -229,6 +282,29 @@ function protectSpeechAtoms(
     /(?<![\p{L}\d])\d{1,2}\.\d{1,2}\.\d{4}(?![\p{L}\d])/gu,
   ];
   let text = input;
+  const semanticSpans = scanSemanticSpans(input);
+  const customSpanTokens = new Map<number, string>();
+  const earlyRuleApplications: NormalizationRuleApplication[] = [];
+  for (const span of semanticSpans) {
+    const exactRule = rules?.explain(span.raw);
+    if (exactRule?.status === 'verified' && rules) {
+      const applied = rules.applyWithTrace(span.raw, token);
+      if (applied.applications.length > 0) {
+        customSpanTokens.set(span.start, applied.text);
+        earlyRuleApplications.push(...applied.applications);
+        for (const application of applied.applications)
+          addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source);
+        continue;
+      }
+    }
+    if (span.kind === 'decimal' || span.kind === 'measure') continue;
+    addSemanticTrace(traceSteps, semanticStage(span.kind), span, sourceOffsets);
+  }
+  for (const span of [...semanticSpans].reverse()) {
+    const customToken = customSpanTokens.get(span.start);
+    if (!customToken && (span.kind === 'decimal' || span.kind === 'measure')) continue;
+    text = text.slice(0, span.start) + (customToken ?? token(span.raw, span.spoken ?? span.raw)) + text.slice(span.end);
+  }
   for (const pattern of patterns) {
     text = text.replace(pattern, (match) => {
       const trail = /[.,!?;:…]+$/u.exec(match)?.[0] ?? '';
@@ -248,7 +324,7 @@ function protectSpeechAtoms(
   if (rules && traceSteps) {
     const result = rules.applyWithTrace(text, token);
     text = result.text;
-    ruleApplications = result.applications;
+    ruleApplications = Object.freeze([...earlyRuleApplications, ...result.applications]);
     for (const application of result.applications) {
       addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source);
     }
@@ -281,12 +357,13 @@ function joinDigitGroups(text: string, steps?: NormalizationTraceStep[]): string
 
 /** «2,8 млн» → 2800000: масштабні слова читаються повним числом, а не «дві цілих». */
 function parseNumeric(raw: string): number | null {
-  const normalized = raw.replace(/,/g, '.');
+  const normalized = raw.replace(/[−]/gu, '-').replace(/,/g, '.');
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
 }
 
 function readNumber(raw: string, gender: Gender = 'm'): string {
+  raw = raw.replace(/−/gu, '-');
   if (raw.includes(',') || raw.includes('.')) {
     const [intPart = '0', fracPart = ''] = raw.split(/[.,]/u);
     return decimalWords(Number(intPart), fracPart);
@@ -300,6 +377,24 @@ const CURRENCIES: ReadonlyArray<readonly [string, { forms: readonly [string, str
   ['дол', { forms: ['долар', 'долари', 'доларів'], gender: 'm' }],
   ['євро', null],
 ];
+
+function expandSymbolCurrency(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(\$|€|₴)\s*(\d+(?:[.,]\d+)?)(?![\p{L}\d])|(?<![\p{L}\d])(\d+(?:[.,]\d+)?)\s*(\$|€|₴)/gu,
+    (match, leading?: string, leadingNumber?: string, trailingNumber?: string, trailing?: string) => {
+      const symbol = leading ?? trailing;
+      const raw = leadingNumber ?? trailingNumber;
+      if (!symbol || !raw) return match;
+      const value = parseNumeric(raw);
+      if (value === null) return match;
+      const words = readNumber(raw, symbol === '₴' ? 'f' : 'm');
+      const unit = symbol === '$'
+        ? pluralForm(value, ['долар', 'долари', 'доларів'])
+        : symbol === '₴'
+          ? pluralForm(value, ['гривня', 'гривні', 'гривень'])
+          : 'євро';
+      return `${words} ${unit}`;
+    }, steps, 'currency');
+}
 
 /** «250 тис. грн.» → «двісті п'ятдесят тисяч гривень»: масштаб і валюта розгортаються разом. */
 function expandScaledCurrency(text: string, steps?: NormalizationTraceStep[]): string {
@@ -322,7 +417,7 @@ function expandScaledCurrency(text: string, steps?: NormalizationTraceStep[]): s
 
 function expandUnits(text: string, steps?: NormalizationTraceStep[]): string {
   const names = [...UNITS].map(([u]) => escapeRe(u)).sort((a, b) => b.length - a.length);
-  const re = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${names.join('|')})(?![\\p{L}\\d])`, 'giu');
+  const re = new RegExp(`([−-]?\\d+(?:[.,]\\d+)?)\\s*(${names.join('|')})(?![\\p{L}\\d])`, 'giu');
 
   return replaceWithTrace(text, re, (match, rawNumber: string, unitRaw: string, offset: number, whole: string) => {
     const unit = UNITS.find(([u]) => u.toLowerCase() === unitRaw.toLowerCase());
@@ -361,6 +456,10 @@ function expandPercent(text: string, steps?: NormalizationTraceStep[]): string {
     const words = readNumber(raw, 'm');
     return `${words} ${pluralForm(value, ['відсоток', 'відсотки', 'відсотків'])}`;
   }, steps, 'percent');
+}
+
+function expandNegativeNumbers(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(?<![\p{L}\d])[−-]\d+(?:[.,]\d+)?(?![\p{L}\d])/gu, (match) => readNumber(match.replace(/−/gu, '-')), steps, 'number');
 }
 
 function expandYears(text: string, steps?: NormalizationTraceStep[]): string {
@@ -577,7 +676,7 @@ function normalizeInternal(
   addTraceStep(steps, 'unicode', input, source);
   source = replaceWithTrace(source, /[\u00a0\u202f]/gu, () => ' ', steps, 'unicode');
   source = replaceWithTrace(source, /[’ʼ`´]/gu, () => "'", steps, 'unicode');
-  const protectedInput = protectSpeechAtoms(source, options.rules, steps);
+  const protectedInput = protectSpeechAtoms(source, options.rules, steps, steps ? nfcOffsetMap(input) : []);
   let text = protectedInput.text;
   text = joinDigitGroups(text, steps);
 
@@ -590,8 +689,10 @@ function normalizeInternal(
   text = expandYears(text, steps);
   text = expandRomanCenturies(text, steps);
   text = expandPercent(text, steps);
+  text = expandSymbolCurrency(text, steps);
   text = expandScaledCurrency(text, steps);
   text = expandUnits(text, steps);
+  text = expandNegativeNumbers(text, steps);
 
   if (abbreviations) text = expandAbbreviations(text, steps);
   if (acronyms) text = expandAcronyms(text, steps);

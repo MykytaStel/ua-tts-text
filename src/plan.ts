@@ -44,9 +44,28 @@ export interface PlanOptions {
 const EMPHASIS_RE = /(?:^|[\s,(])(?:не|ні|але|проте|однак|саме|лише|тільки|навіть)(?:[\s,.)]|$)/iu;
 
 import { tokenizeWords } from './tokenize.js';
+import { scanSemanticSpans } from './semantic.js';
+import { normalize } from './normalize.js';
 
-const SENTENCE_RE = /[^.!?…]+[.!?…]*/gu;
-const CLAUSE_RE = /[^,;:—–]+[,;:—–]?/gu;
+function splitOutsideSemanticSpans(text: string, separators: RegExp): string[] {
+  const spans = scanSemanticSpans(text);
+  const parts: string[] = [];
+  let start = 0;
+  let spanIndex = 0;
+  for (const match of text.matchAll(separators)) {
+    const from = match.index;
+    const to = from + match[0].length;
+    while (spans[spanIndex] && spans[spanIndex]!.end <= from) spanIndex += 1;
+    const span = spans[spanIndex];
+    if (span && from < span.end && to > span.start) continue;
+    const part = text.slice(start, to).trim();
+    if (part) parts.push(part);
+    start = to;
+  }
+  const tail = text.slice(start).trim();
+  if (tail) parts.push(tail);
+  return parts;
+}
 
 function kindOf(text: string): SegmentKind {
   const last = text.trim().at(-1);
@@ -56,7 +75,7 @@ function kindOf(text: string): SegmentKind {
 }
 
 function wordCount(text: string): number {
-  return tokenizeWords(text).length;
+  return tokenizeWords(normalize(text)).length;
 }
 
 /**
@@ -69,10 +88,10 @@ export function planSpeech(text: string, options: PlanOptions = {}): SpeechPlan 
   const wordsPerMinute = options.wordsPerMinute ?? 125;
 
   const segments: SpeechSegment[] = [];
-  const sentences = [...text.matchAll(SENTENCE_RE)].map((match) => match[0].trim()).filter(Boolean);
+  const sentences = splitOutsideSemanticSpans(text, /[.!?…]+/gu);
 
   sentences.forEach((sentence, sentenceIndex) => {
-    const clauses = [...sentence.matchAll(CLAUSE_RE)].map((match) => match[0].trim()).filter(Boolean);
+    const clauses = splitOutsideSemanticSpans(sentence, /[,;:—–]+/gu);
     clauses.forEach((clause, clauseIndex) => {
       const isLastClause = clauseIndex === clauses.length - 1;
       const isLastSentence = sentenceIndex === sentences.length - 1;
