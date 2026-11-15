@@ -28,6 +28,7 @@
 | Сліпе A/B аудіо для двох версій | ✅ нова команда `ua-tts-text-blind-audio` у `0.16.0` |
 | Проєктні правила читання | ✅ `NormalizationRules` і локальний `normalization.tsv` у `0.17.0` |
 | Відображення нормалізованого фрагмента на конкретне входження у джерелі | ✅ `normalizeWithAlignment()` з UTF-16 позиціями у `0.21.0` |
+| Збережені виправлення одного входження | ✅ `NormalizationCorrectionSet` із fingerprint перевіркою у `0.21.0` |
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
 | Реліз | вихідний код `0.21.0`; npm `latest` — `0.20.0` (2026-11-15) |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
@@ -458,8 +459,8 @@ const { text, ruleApplications, steps } = normalizeWithTrace(input, { rules: res
 
 Для редактора озвучки потрібні також позиції кожного фрагмента у фінальному тексті.
 `normalizeWithAlignment()` повертає сегменти з діапазонами і текстом у джерелі та в
-результаті. Повторні фрагменти мають незалежні координати; розгортання короткого
-запису в кілька слів залишається одним вирівняним сегментом.
+результаті. Незмінені слова мають окремі сегменти, повтори — незалежні координати,
+а розгортання короткого запису в кілька слів залишається одним вирівняним сегментом.
 
 ```ts
 const result = normalizeWithAlignment('5 км і 5 км.');
@@ -471,6 +472,37 @@ const changed = result.alignment.filter((segment) => segment.changed);
 озвучуваний вихід; символи, які нормалізатор вилучив як пунктуацію, не створюють
 порожній сегмент. Вирівнювання показує походження тексту, але саме по собі не
 підтверджує правильність прочитання.
+
+Studio може зберегти ручне виправлення для одного точного входження й застосувати
+його після наступного запуску того самого тексту:
+
+```ts
+const input = 'АТБ відкрився.';
+const preview = normalizeWithAlignment(input);
+const brand = preview.alignment.find((segment) => segment.sourceText === 'АТБ');
+if (!brand) throw new Error('Не знайдено сегмент назви');
+
+const corrections = createNormalizationCorrectionSet(preview, [{
+  sourceStart: brand.sourceStart,
+  sourceEnd: brand.sourceEnd,
+  spokenStart: brand.spokenStart,
+  spokenEnd: brand.spokenEnd,
+  replacement: 'а-те-бе',
+  source: 'перевірено редактором',
+}]);
+const corrected = normalizeWithAlignment(input, { corrections });
+// JSON.stringify(corrections) можна зберегти у файлі проєкту.
+const prepared = prepare(input, { engine: 'tts-uk', normalizationCorrections: corrections });
+```
+
+Набір зберігає текст вибраного фрагмента, позиції, очікуване базове прочитання
+і SHA-256 fingerprint тексту, результату та правил. Змінений текст, нормалізація
+чи набір правил відхилять застарілий набір замість перенесення виправлення на інше
+входження. `prepare()` приймає цей набір у `normalizationCorrections` і застосовує його
+до нормалізованого тексту перед наголосами та передачею рушію. `prepareMany()`
+відхиляє один набір для кількох різних текстів. JSON містить фрагменти користувацького
+тексту: зберігай його у своїх проєктних даних і не журналюй без потреби. Звичайний
+`normalize()` лишається базовим нормалізатором.
 
 ## Оцінювання
 

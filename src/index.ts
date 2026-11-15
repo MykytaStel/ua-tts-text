@@ -6,7 +6,12 @@ import { createHash } from 'node:crypto';
 import type { ContextSource } from './context.js';
 import { StressDictionary } from './dict.js';
 import type { StressSource } from './lexicon.js';
-import { normalize, type NormalizeOptions } from './normalize.js';
+import {
+  normalize,
+  normalizeWithAlignment,
+  type NormalizationCorrectionSet,
+  type NormalizeOptions,
+} from './normalize.js';
 import { ENGINES, render, type EngineId, type RenderResult } from './render.js';
 import { homographs, lint, type Homograph, type Issue } from './review.js';
 import { resolveOccurrences, resolveUnknown, type Asker, type ResolveOptions } from './resolve.js';
@@ -44,6 +49,8 @@ export interface PrepareOptions {
   /** Immutable dictionary, lexicon, context and content fingerprint from `loadResources()`. */
   resources?: Resources;
   normalize?: NormalizeOptions;
+  /** Saved per-occurrence readings from createNormalizationCorrectionSet(). */
+  normalizationCorrections?: NormalizationCorrectionSet;
   stress?: StressOptions;
 }
 
@@ -63,6 +70,10 @@ export interface PrepareResult {
   contextual: number;
   evidence?: StressEvidence[];
   resourceFingerprint?: string;
+  /** Fingerprint for the plain normalized text used to validate saved corrections. */
+  normalizationFingerprint?: string;
+  /** Number of occurrence-specific normalization corrections applied before stress/render. */
+  normalizationCorrectionsApplied?: number;
   /** Numeric/date/time spans that were preserved because the input is invalid or ambiguous. */
   semanticFindings?: Array<{ readonly kind: SemanticKind; readonly raw: string; readonly offset: number; readonly message: string }>;
 }
@@ -135,8 +146,14 @@ function normalizeOptions(options: Pick<PrepareOptions, 'normalize' | 'resources
   return { ...options.normalize, rules };
 }
 
-function normalizeInput(input: string, options: Pick<PrepareOptions, 'normalize' | 'resources'>): string {
-  return normalize(input, normalizeOptions(options));
+function normalizeInput(
+  input: string,
+  options: Pick<PrepareOptions, 'normalize' | 'resources' | 'normalizationCorrections'>,
+): string {
+  const normalization = normalizeOptions(options) ?? {};
+  return options.normalizationCorrections
+    ? normalizeWithAlignment(input, { ...normalization, corrections: options.normalizationCorrections }).text
+    : normalize(input, normalization);
 }
 
 function effectiveResourceFingerprint(options: Pick<PrepareOptions, 'normalize' | 'resources' | 'stress'>): string | undefined {
@@ -157,6 +174,8 @@ function assertEngine(engine: string): asserts engine is EngineId {
  * одним LLM-запитом. Без `ask` поводиться як звичайний `prepare`.
  */
 export async function prepareMany(inputs: readonly string[], options: PrepareManyOptions = {}): Promise<PrepareManyResult> {
+  if (options.normalizationCorrections && inputs.length !== 1)
+    throw new Error('prepareMany: normalizationCorrections are scoped to one exact input; prepare each corrected paragraph separately');
   if (inputs.length > 1 && Object.keys(options.stress?.occurrenceDecisions ?? {}).length > 0)
     throw new Error('prepareMany: use paragraph:offset keys in occurrenceDecisions for multiple inputs');
   if (inputs.length > 1 && Object.keys(options.stress?.occurrenceOverrides ?? {}).length > 0)
@@ -277,10 +296,31 @@ function withoutDecided(context: ContextSource, decided: Readonly<Record<string,
 /** Нормалізація + наголоси під рушій. */
 export function prepare(input: string, options: PrepareOptions = {}): PrepareResult {
   if (options.engine !== undefined) assertEngine(options.engine);
-  const normalized = normalizeInput(input, options);
+  const aligned = options.normalizationCorrections
+    ? normalizeWithAlignment(input, {
+        ...(normalizeOptions(options) ?? {}),
+        corrections: options.normalizationCorrections,
+      })
+    : undefined;
+  const normalized = aligned?.text ?? normalizeInput(input, options);
+  const correctionMetadata = aligned
+    ? {
+        normalizationFingerprint: aligned.fingerprint,
+        normalizationCorrectionsApplied: aligned.correctionsApplied,
+      }
+    : {};
   const activeRules = normalizeOptions(options)?.rules;
+  const manuallyCorrectedSpans = new Set(
+    options.normalizationCorrections?.corrections.map((correction) =>
+      [correction.sourceStart, correction.sourceEnd].join(':'),
+    ) ?? [],
+  );
   const semanticFindings = scanSemanticSpans(input)
-    .filter((span) => span.kind === 'ambiguous' && activeRules?.explain(span.raw)?.status !== 'verified')
+    .filter((span) =>
+      span.kind === 'ambiguous' &&
+      activeRules?.explain(span.raw)?.status !== 'verified' &&
+      !manuallyCorrectedSpans.has([span.start, span.end].join(':')),
+    )
     .map((span) => Object.freeze({ kind: span.kind, raw: span.raw, offset: span.start, message: span.reason ?? 'Потрібна перевірка значення фрагмента.' }));
 
   const dictionary = options.dictionary ?? options.resources?.dictionary;
@@ -306,6 +346,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
       contextual: 0,
       semanticFindings,
       ...(resourceFingerprint ? { resourceFingerprint } : {}),
+      ...correctionMetadata,
     };
   }
 
@@ -348,5 +389,6 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
     semanticFindings,
     ...(result.evidence ? { evidence: result.evidence } : {}),
     ...(resourceFingerprint ? { resourceFingerprint } : {}),
+    ...correctionMetadata,
   };
 }

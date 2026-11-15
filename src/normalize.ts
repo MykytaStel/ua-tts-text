@@ -3,6 +3,7 @@
  * одиниці, скорочення, пунктуація. Наголоси — окремий модуль (stress.ts).
  */
 
+import { createHash } from 'node:crypto';
 import {
   cardinal,
   decimalWords,
@@ -50,6 +51,8 @@ export type NormalizationTraceStage =
   | 'acronym'
   | 'identifier'
   | 'number'
+  | 'ambiguous'
+  | 'manual-correction'
   | 'punctuation';
 
 export interface NormalizationTraceStep {
@@ -86,8 +89,44 @@ export interface NormalizationAlignmentSegment {
 }
 
 export interface NormalizeAlignmentResult extends NormalizeTraceResult {
+  /** Fingerprint of the exact source, normalized output, and rule options. */
+  readonly fingerprint: string;
   /** Output segments mapped back to the exact source occurrence that produced them. */
   readonly alignment: ReadonlyArray<NormalizationAlignmentSegment>;
+  /** Number of saved occurrence corrections applied to this result. */
+  readonly correctionsApplied: number;
+}
+
+export interface NormalizeAlignmentOptions extends NormalizeOptions {
+  /** Saved corrections made against a matching uncorrected normalization fingerprint. */
+  readonly corrections?: NormalizationCorrectionSet;
+}
+
+export interface NormalizationCorrectionDraft {
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  readonly spokenStart: number;
+  readonly spokenEnd: number;
+  readonly replacement: string;
+  readonly source?: string;
+}
+
+export interface NormalizationCorrection {
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  readonly sourceText: string;
+  readonly spokenStart: number;
+  readonly spokenEnd: number;
+  readonly expectedSpokenText: string;
+  readonly replacement: string;
+  readonly source?: string;
+}
+
+export interface NormalizationCorrectionSet {
+  readonly format: 'ua-tts-text-normalization-corrections';
+  readonly version: 1;
+  readonly fingerprint: string;
+  readonly corrections: ReadonlyArray<NormalizationCorrection>;
 }
 
 interface SourceOrigin {
@@ -228,6 +267,8 @@ const STAGE_EXPLANATIONS: Record<NormalizationTraceStage, string> = {
   acronym: 'Абревіатуру розгорнуто для читання.',
   identifier: 'Позначення номера розгорнуто словами.',
   number: 'Число розгорнуто словами.',
+  ambiguous: 'Фрагмент лишився без однозначного прочитання.',
+  'manual-correction': 'Застосовано збережене виправлення конкретного входження.',
   punctuation: 'Пунктуацію пристосовано до синтезу.',
 };
 
@@ -482,7 +523,9 @@ function protectSpeechAtoms(
     const customToken = customSpanTokens.get(span.start);
     if (!customToken && (span.kind === 'decimal' || span.kind === 'measure')) continue;
     const replacement = customToken ?? token(span.raw, span.spoken ?? span.raw);
-    const stage = customToken ? 'project-rule' : semanticStage(span.kind);
+    const stage = customToken
+      ? 'project-rule'
+      : semanticStage(span.kind) ?? (span.kind === 'ambiguous' ? 'ambiguous' : undefined);
     text = text.slice(0, span.start) + replacement + text.slice(span.end);
     sourceMap?.replace(span.start, span.end - span.start, replacement.length, stage);
   }
@@ -940,6 +983,7 @@ function alignmentSegments(
     let sourceStart = first.start;
     let sourceEnd = first.end;
     const stage = first.stage;
+    const textClass = stage === undefined ? alignmentTextClass(text[spokenStart]!) : undefined;
     let spokenEnd = spokenStart + 1;
     while (spokenEnd < text.length) {
       const previous = origins[spokenEnd - 1]!;
@@ -947,6 +991,7 @@ function alignmentSegments(
       const sameSourceSpan = current.start === previous.start && current.end === previous.end;
       const adjacentSourceSpans = current.start === previous.end;
       if (current.stage !== stage || (!sameSourceSpan && !adjacentSourceSpans)) break;
+      if (textClass !== undefined && alignmentTextClass(text[spokenEnd]!) !== textClass) break;
       sourceStart = Math.min(sourceStart, current.start);
       sourceEnd = Math.max(sourceEnd, current.end);
       spokenEnd += 1;
@@ -968,14 +1013,210 @@ function alignmentSegments(
   return Object.freeze(segments);
 }
 
+function alignmentTextClass(character: string): 'word' | 'space' | 'punctuation' {
+  if (/\s/u.test(character)) return 'space';
+  if (/[\p{L}\p{M}\p{N}'’ʼ+\-]/u.test(character)) return 'word';
+  return 'punctuation';
+}
+
+const CORRECTION_FORMAT = 'ua-tts-text-normalization-corrections';
+
+function normalizationFingerprint(input: string, normalizedText: string, options: NormalizeOptions): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      format: 'ua-tts-text-normalization-fingerprint',
+      version: 1,
+      input,
+      normalizedText,
+      options: {
+        abbreviations: options.abbreviations ?? true,
+        acronyms: options.acronyms ?? true,
+        punctuation: options.punctuation ?? true,
+        rules: options.rules?.fingerprint ?? null,
+      },
+    }))
+    .digest('hex');
+}
+
+function correctionKey(correction: Pick<NormalizationCorrection, 'sourceStart' | 'sourceEnd' | 'spokenStart' | 'spokenEnd'>): string {
+  return [correction.sourceStart, correction.sourceEnd, correction.spokenStart, correction.spokenEnd].join(':');
+}
+
+function validateCorrectionText(text: string): void {
+  if (typeof text !== 'string' || text.length === 0 || text.length > 512 || text !== text.trim())
+    throw new Error('normalizeWithAlignment: correction must be a non-empty, trimmed phrase of at most 512 UTF-16 units');
+  if (/[\u0000-\u001f\u007f-\u009f\ue100-\uf9ff]/u.test(text))
+    throw new Error('normalizeWithAlignment: correction contains a control or reserved character');
+}
+
+function assertNonOverlappingCorrections(corrections: readonly NormalizationCorrection[]): void {
+  const bySource = [...corrections].sort((a, b) => a.sourceStart - b.sourceStart);
+  const bySpoken = [...corrections].sort((a, b) => a.spokenStart - b.spokenStart);
+  for (let i = 1; i < bySource.length; i += 1) {
+    if (bySource[i]!.sourceStart < bySource[i - 1]!.sourceEnd)
+      throw new Error('normalizeWithAlignment: corrections overlap in the source text');
+  }
+  for (let i = 1; i < bySpoken.length; i += 1) {
+    if (bySpoken[i]!.spokenStart < bySpoken[i - 1]!.spokenEnd)
+      throw new Error('normalizeWithAlignment: corrections overlap in the normalized text');
+  }
+}
+
+/** Create a serializable, occurrence-specific correction set from selected alignment segments. */
+export function createNormalizationCorrectionSet(
+  result: NormalizeAlignmentResult,
+  drafts: ReadonlyArray<NormalizationCorrectionDraft>,
+): NormalizationCorrectionSet {
+  if (result.correctionsApplied !== 0)
+    throw new Error('createNormalizationCorrectionSet: start from an uncorrected alignment result');
+  if (!Array.isArray(drafts))
+    throw new TypeError('createNormalizationCorrectionSet: corrections must be an array');
+  if (drafts.length > 1000) throw new RangeError('createNormalizationCorrectionSet: at most 1000 corrections are supported');
+  const corrections = drafts.map((draft) => {
+    if (!draft || !Number.isInteger(draft.sourceStart) || !Number.isInteger(draft.sourceEnd) ||
+        !Number.isInteger(draft.spokenStart) || !Number.isInteger(draft.spokenEnd))
+      throw new Error('createNormalizationCorrectionSet: malformed correction range');
+    const matches = result.alignment.filter((segment) =>
+      segment.sourceStart === draft.sourceStart &&
+      segment.sourceEnd === draft.sourceEnd &&
+      segment.spokenStart === draft.spokenStart &&
+      segment.spokenEnd === draft.spokenEnd,
+    );
+    if (matches.length !== 1)
+      throw new Error('createNormalizationCorrectionSet: source/spoken range does not identify one segment at ' + draft.sourceStart);
+    const segment = matches[0]!;
+    validateCorrectionText(draft.replacement);
+    if (draft.replacement === segment.spokenText)
+      throw new Error('createNormalizationCorrectionSet: replacement is unchanged at source offset ' + draft.sourceStart);
+    if (draft.source !== undefined &&
+        (typeof draft.source !== 'string' || draft.source.length > 256 || draft.source.trim() !== draft.source))
+      throw new Error('createNormalizationCorrectionSet: source label must be trimmed and at most 256 UTF-16 units');
+    return Object.freeze({
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+      sourceText: segment.sourceText,
+      spokenStart: segment.spokenStart,
+      spokenEnd: segment.spokenEnd,
+      expectedSpokenText: segment.spokenText,
+      replacement: draft.replacement,
+      ...(draft.source ? { source: draft.source } : {}),
+    });
+  });
+  assertNonOverlappingCorrections(corrections);
+  return Object.freeze({
+    format: CORRECTION_FORMAT,
+    version: 1,
+    fingerprint: result.fingerprint,
+    corrections: Object.freeze(corrections),
+  });
+}
+
+function validateCorrectionSet(
+  result: NormalizeAlignmentResult,
+  set: NormalizationCorrectionSet,
+): ReadonlyArray<NormalizationCorrection> {
+  if (!set || set.format !== CORRECTION_FORMAT || set.version !== 1 || !Array.isArray(set.corrections))
+    throw new Error('normalizeWithAlignment: unsupported correction set format');
+  if (set.fingerprint !== result.fingerprint)
+    throw new Error('normalizeWithAlignment: saved corrections are stale for this text or rule set');
+  if (set.corrections.length > 1000)
+    throw new RangeError('normalizeWithAlignment: at most 1000 corrections are supported');
+  for (const correction of set.corrections) {
+    if (!correction || !Number.isInteger(correction.sourceStart) || !Number.isInteger(correction.sourceEnd) ||
+        !Number.isInteger(correction.spokenStart) || !Number.isInteger(correction.spokenEnd) ||
+        correction.sourceStart < 0 || correction.sourceEnd <= correction.sourceStart ||
+        correction.spokenStart < 0 || correction.spokenEnd <= correction.spokenStart ||
+        typeof correction.sourceText !== 'string' || typeof correction.expectedSpokenText !== 'string')
+      throw new Error('normalizeWithAlignment: malformed saved correction');
+    validateCorrectionText(correction.replacement);
+    if (correction.source !== undefined &&
+        (typeof correction.source !== 'string' || correction.source.length > 256 || correction.source.trim() !== correction.source))
+      throw new Error('normalizeWithAlignment: saved correction has an invalid source label');
+    const matches = result.alignment.filter((segment) =>
+      segment.sourceStart === correction.sourceStart &&
+      segment.sourceEnd === correction.sourceEnd &&
+      segment.spokenStart === correction.spokenStart &&
+      segment.spokenEnd === correction.spokenEnd &&
+      segment.sourceText === correction.sourceText &&
+      segment.spokenText === correction.expectedSpokenText,
+    );
+    if (matches.length !== 1)
+      throw new Error('normalizeWithAlignment: saved correction is stale at source offset ' + correction.sourceStart);
+    if (correction.replacement === correction.expectedSpokenText)
+      throw new Error('normalizeWithAlignment: saved correction has no effect at source offset ' + correction.sourceStart);
+  }
+  assertNonOverlappingCorrections(set.corrections);
+  return set.corrections;
+}
+
+function applyNormalizationCorrections(
+  result: NormalizeAlignmentResult,
+  set: NormalizationCorrectionSet,
+): NormalizeAlignmentResult {
+  const corrections = validateCorrectionSet(result, set);
+  if (corrections.length === 0) return result;
+  let text = result.text;
+  for (const correction of [...corrections].sort((a, b) => b.spokenStart - a.spokenStart))
+    text = text.slice(0, correction.spokenStart) + correction.replacement + text.slice(correction.spokenEnd);
+
+  const bySegment = new Map(corrections.map((correction) => [correctionKey(correction), correction]));
+  const alignment = result.alignment.map((segment) => {
+    const correction = bySegment.get(correctionKey(segment));
+    const shift = corrections.reduce((total, item) =>
+      item.spokenEnd <= segment.spokenStart
+        ? total + item.replacement.length - (item.spokenEnd - item.spokenStart)
+        : total,
+    0);
+    const spokenStart = segment.spokenStart + shift;
+    if (correction) {
+      return Object.freeze({
+        ...segment,
+        spokenStart,
+        spokenEnd: spokenStart + correction.replacement.length,
+        spokenText: correction.replacement,
+        changed: segment.sourceText !== correction.replacement,
+        stage: 'manual-correction' as const,
+      });
+    }
+    return Object.freeze({
+      ...segment,
+      spokenStart,
+      spokenEnd: segment.spokenEnd + shift,
+    });
+  });
+  const correctionSteps = corrections.map((correction) => Object.freeze({
+    stage: 'manual-correction' as const,
+    before: correction.expectedSpokenText,
+    after: correction.replacement,
+    explanation: STAGE_EXPLANATIONS['manual-correction'],
+    ...(correction.source ? { source: correction.source } : {}),
+    sourceStart: correction.sourceStart,
+    sourceEnd: correction.sourceEnd,
+  }));
+  return Object.freeze({
+    ...result,
+    text,
+    alignment: Object.freeze(alignment),
+    correctionsApplied: corrections.length,
+    steps: Object.freeze([...result.steps, ...correctionSteps]),
+  });
+}
+
 /**
  * Normalize text and map each output segment to the exact source occurrence
  * that produced it. Offsets in both strings are UTF-16, like JavaScript slicing.
  */
-export function normalizeWithAlignment(input: string, options: NormalizeOptions = {}): NormalizeAlignmentResult {
+export function normalizeWithAlignment(input: string, options: NormalizeAlignmentOptions = {}): NormalizeAlignmentResult {
+  const { corrections, ...normalizeOptions } = options;
   const steps: NormalizationTraceStep[] = [];
-  const result = normalizeInternal(input, options, steps);
+  const result = normalizeInternal(input, normalizeOptions, steps);
   const sourceMap = SOURCE_MAPS.get(steps);
   if (!sourceMap) throw new Error('normalizeWithAlignment: source map unavailable');
-  return Object.freeze({ ...result, alignment: alignmentSegments(result.text, sourceMap) });
+  const aligned = Object.freeze({
+    ...result,
+    fingerprint: normalizationFingerprint(input, result.text, normalizeOptions),
+    alignment: alignmentSegments(result.text, sourceMap),
+    correctionsApplied: 0,
+  });
+  return corrections ? applyNormalizationCorrections(aligned, corrections) : aligned;
 }
