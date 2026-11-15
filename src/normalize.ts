@@ -59,7 +59,7 @@ export interface NormalizationTraceStep {
   readonly after: string;
   readonly explanation: string;
   readonly source?: string;
-  /** UTF-16 range in the original input when the typed scanner recognized the span. */
+  /** UTF-16 range in the original input that produced this change. */
   readonly sourceStart?: number;
   readonly sourceEnd?: number;
 }
@@ -70,6 +70,141 @@ export interface NormalizeTraceResult {
   readonly ruleApplications: ReadonlyArray<NormalizationRuleApplication>;
   /** Every changed matched fragment in normalization order, including custom rules and built-in passes. */
   readonly steps: ReadonlyArray<NormalizationTraceStep>;
+}
+
+export interface NormalizationAlignmentSegment {
+  /** UTF-16 range in the original input. */
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  /** UTF-16 range in NormalizeAlignmentResult.text. */
+  readonly spokenStart: number;
+  readonly spokenEnd: number;
+  readonly sourceText: string;
+  readonly spokenText: string;
+  readonly changed: boolean;
+  readonly stage?: NormalizationTraceStage;
+}
+
+export interface NormalizeAlignmentResult extends NormalizeTraceResult {
+  /** Output segments mapped back to the exact source occurrence that produced them. */
+  readonly alignment: ReadonlyArray<NormalizationAlignmentSegment>;
+}
+
+interface SourceOrigin {
+  readonly start: number;
+  readonly end: number;
+  readonly stage?: NormalizationTraceStage;
+}
+
+interface SourceReplacement {
+  readonly start: number;
+  readonly length: number;
+  readonly outputLength: number;
+  readonly stage?: NormalizationTraceStage;
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+}
+
+/**
+ * Tracks source provenance while the existing normalization passes replace text.
+ * The map is only allocated by trace/alignment APIs, leaving normalize() unchanged.
+ */
+class NormalizationSourceMap {
+  readonly #original: string;
+  #origins: SourceOrigin[];
+
+  constructor(original: string, normalized: string) {
+    this.#original = original;
+    this.#origins = [];
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    for (const { segment, index } of segmenter.segment(original)) {
+      const normalizedSegment = segment.normalize('NFC');
+      const stage = normalizedSegment === segment ? undefined : 'unicode';
+      for (let i = 0; i < normalizedSegment.length; i += 1) {
+        this.#origins.push({
+          start: index,
+          end: index + segment.length,
+          ...(stage ? { stage } : {}),
+        });
+      }
+    }
+    if (this.#origins.length !== normalized.length)
+      throw new Error('normalize: source map could not align NFC text');
+  }
+
+  range(start: number, length: number): { start: number; end: number } {
+    let sourceStart = Number.POSITIVE_INFINITY;
+    let sourceEnd = Number.NEGATIVE_INFINITY;
+    const end = Math.min(start + length, this.#origins.length);
+    for (let i = Math.max(0, start); i < end; i += 1) {
+      const origin = this.#origins[i]!;
+      sourceStart = Math.min(sourceStart, origin.start);
+      sourceEnd = Math.max(sourceEnd, origin.end);
+    }
+    if (sourceStart === Number.POSITIVE_INFINITY) {
+      const boundary = this.#origins[start]?.start ?? this.#origins[start - 1]?.end ?? 0;
+      return { start: boundary, end: boundary };
+    }
+    return { start: sourceStart, end: sourceEnd };
+  }
+
+  stage(start: number, length: number): NormalizationTraceStage | undefined {
+    const first = this.#origins[start]?.stage;
+    if (first === undefined) return undefined;
+    for (let i = start + 1; i < start + length; i += 1)
+      if (this.#origins[i]?.stage !== first) return undefined;
+    return first;
+  }
+
+  replace(start: number, length: number, outputLength: number, stage?: NormalizationTraceStage): void {
+    const range = this.range(start, length);
+    const resolvedStage = stage ?? this.stage(start, length);
+    this.apply([{
+      start,
+      length,
+      outputLength,
+      ...(resolvedStage ? { stage: resolvedStage } : {}),
+      sourceStart: range.start,
+      sourceEnd: range.end,
+    }]);
+  }
+
+  apply(replacements: readonly SourceReplacement[]): void {
+    if (replacements.length === 0) return;
+    const previous = this.#origins;
+    const next: SourceOrigin[] = [];
+    let cursor = 0;
+    for (const replacement of [...replacements].sort((a, b) => a.start - b.start)) {
+      if (replacement.start < cursor) throw new Error('normalize: overlapping source map replacements');
+      for (let i = cursor; i < replacement.start; i += 1) next.push(previous[i]!);
+      const stage = replacement.stage ?? this.stage(replacement.start, replacement.length);
+      for (let i = 0; i < replacement.outputLength; i += 1) {
+        next.push({
+          start: replacement.sourceStart,
+          end: replacement.sourceEnd,
+          ...(stage ? { stage } : {}),
+        });
+      }
+      cursor = replacement.start + replacement.length;
+    }
+    for (let i = cursor; i < previous.length; i += 1) next.push(previous[i]!);
+    this.#origins = next;
+  }
+
+  get origins(): ReadonlyArray<SourceOrigin> {
+    return this.#origins;
+  }
+
+  sourceText(start: number, end: number): string {
+    return this.#original.slice(start, end);
+  }
+}
+
+const SOURCE_MAPS = new WeakMap<NormalizationTraceStep[], NormalizationSourceMap>();
+
+function replaceOffset(args: readonly unknown[]): number {
+  const offset = args.find((arg): arg is number => typeof arg === 'number');
+  return offset ?? 0;
 }
 
 const STAGE_EXPLANATIONS: Record<NormalizationTraceStage, string> = {
@@ -102,9 +237,17 @@ function addTraceStep(
   before: string,
   after: string,
   source?: string,
+  sourceRange?: { start: number; end: number },
 ): void {
   if (!steps || before === after) return;
-  steps.push(Object.freeze({ stage, before, after, explanation: STAGE_EXPLANATIONS[stage], ...(source ? { source } : {}) }));
+  steps.push(Object.freeze({
+    stage,
+    before,
+    after,
+    explanation: STAGE_EXPLANATIONS[stage],
+    ...(source ? { source } : {}),
+    ...(sourceRange ? { sourceStart: sourceRange.start, sourceEnd: sourceRange.end } : {}),
+  }));
 }
 
 function replaceWithTrace<Args extends unknown[]>(
@@ -115,11 +258,28 @@ function replaceWithTrace<Args extends unknown[]>(
   stage: NormalizationTraceStage,
 ): string {
   if (!steps) return text.replace(pattern, replacer);
-  return text.replace(pattern, (match, ...args) => {
+  const sourceMap = SOURCE_MAPS.get(steps);
+  const replacements: SourceReplacement[] = [];
+  const output = text.replace(pattern, (match, ...args) => {
     const after = replacer(match, ...(args as Args));
-    addTraceStep(steps, stage, match, after);
+    const offset = replaceOffset(args);
+    const sourceRange = sourceMap?.range(offset, match.length);
+    addTraceStep(steps, stage, match, after, undefined, sourceRange);
+    if (sourceMap && after !== match)
+      replacements.push({
+        start: offset,
+        length: match.length,
+        outputLength: after.length,
+        stage,
+        sourceStart: sourceRange?.start ?? offset,
+        sourceEnd: sourceRange?.end ?? offset + match.length,
+      });
     return after;
   });
+  if (sourceMap) {
+    sourceMap.apply(replacements);
+  }
+  return output;
 }
 
 const MONTHS_GENITIVE: Record<string, string> = {
@@ -232,29 +392,45 @@ function addSemanticTrace(
   steps: NormalizationTraceStep[] | undefined,
   stage: NormalizationTraceStage | undefined,
   span: { raw: string; spoken?: string; start: number; end: number },
-  sourceOffsets: ReadonlyArray<number>,
 ): void {
   if (!steps || !stage || !span.spoken || span.raw === span.spoken) return;
+  const sourceRange = SOURCE_MAPS.get(steps)?.range(span.start, span.end - span.start);
   steps.push(Object.freeze({
     stage,
     before: span.raw,
     after: span.spoken,
     explanation: STAGE_EXPLANATIONS[stage],
-    sourceStart: sourceOffsets[span.start] ?? span.start,
-    sourceEnd: sourceOffsets[span.end] ?? span.end,
+    ...(sourceRange ? { sourceStart: sourceRange.start, sourceEnd: sourceRange.end } : {}),
   }));
 }
 
-function nfcOffsetMap(input: string): number[] {
-  const offsets = [0];
-  let normalizedLength = 0;
-  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-  for (const { segment, index } of segmenter.segment(input)) {
-    const originalEnd = index + segment.length;
-    normalizedLength += segment.normalize('NFC').length;
-    offsets[normalizedLength] = originalEnd;
-  }
-  return offsets;
+function replaceWithMappedTokens(
+  text: string,
+  pattern: RegExp,
+  replacer: (match: string, ...args: unknown[]) => string,
+  traceSteps: NormalizationTraceStep[] | undefined,
+  stage?: NormalizationTraceStage,
+): string {
+  const sourceMap = traceSteps ? SOURCE_MAPS.get(traceSteps) : undefined;
+  const replacements: SourceReplacement[] = [];
+  const output = text.replace(pattern, (match, ...args) => {
+    const after = replacer(match, ...args);
+    if (sourceMap && after !== match) {
+      const offset = replaceOffset(args);
+      const sourceRange = sourceMap.range(offset, match.length);
+      replacements.push({
+        start: offset,
+        length: match.length,
+        outputLength: after.length,
+        ...(stage ? { stage } : {}),
+        sourceStart: sourceRange.start,
+        sourceEnd: sourceRange.end,
+      });
+    }
+    return after;
+  });
+  sourceMap?.apply(replacements);
+  return output;
 }
 
 /** Protect strings whose spelling carries identity rather than a quantity. */
@@ -262,12 +438,12 @@ function protectSpeechAtoms(
   input: string,
   rules?: NormalizationRules | null,
   traceSteps?: NormalizationTraceStep[],
-  sourceOffsets: ReadonlyArray<number> = [],
 ): {
   text: string;
   restore: (text: string) => string;
   ruleApplications?: ReadonlyArray<NormalizationRuleApplication>;
 } {
+  const sourceMap = traceSteps ? SOURCE_MAPS.get(traceSteps) : undefined;
   const atoms: string[] = [];
   const token = (value: string, spoken = value) => {
     const id = atoms.push(spoken) - 1;
@@ -292,48 +468,71 @@ function protectSpeechAtoms(
       if (applied.applications.length > 0) {
         customSpanTokens.set(span.start, applied.text);
         earlyRuleApplications.push(...applied.applications);
-        for (const application of applied.applications)
-          addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source);
+        for (const application of applied.applications) {
+          const sourceRange = sourceMap?.range(span.start, span.end - span.start);
+          addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source, sourceRange);
+        }
         continue;
       }
     }
     if (span.kind === 'decimal' || span.kind === 'measure') continue;
-    addSemanticTrace(traceSteps, semanticStage(span.kind), span, sourceOffsets);
+    addSemanticTrace(traceSteps, semanticStage(span.kind), span);
   }
   for (const span of [...semanticSpans].reverse()) {
     const customToken = customSpanTokens.get(span.start);
     if (!customToken && (span.kind === 'decimal' || span.kind === 'measure')) continue;
-    text = text.slice(0, span.start) + (customToken ?? token(span.raw, span.spoken ?? span.raw)) + text.slice(span.end);
+    const replacement = customToken ?? token(span.raw, span.spoken ?? span.raw);
+    const stage = customToken ? 'project-rule' : semanticStage(span.kind);
+    text = text.slice(0, span.start) + replacement + text.slice(span.end);
+    sourceMap?.replace(span.start, span.end - span.start, replacement.length, stage);
   }
-  for (const pattern of patterns) {
-    text = text.replace(pattern, (match) => {
+  for (const [index, pattern] of patterns.entries()) {
+    text = replaceWithMappedTokens(text, pattern, (match) => {
       const trail = /[.,!?;:…]+$/u.exec(match)?.[0] ?? '';
       const core = trail ? match.slice(0, -trail.length) : match;
       if (validDottedDate(core)) return match;
       if (pattern.source.includes('\\d{1,2}\\.') && !validDottedDate(core)) return token(match);
       return token(core) + trail;
-    });
+    }, traceSteps, index < 3 ? 'identifier' : 'date');
   }
   // Phones need an explicit dial string and at least nine digits; short grouped quantities stay numeric.
-  text = text.replace(/(?<![\p{L}\d])\+?\d[\d ().-]{7,}\d(?![\p{L}\d])/gu, (match) => {
+  text = replaceWithMappedTokens(text, /(?<![\p{L}\d])\+?\d[\d ().-]{7,}\d(?![\p{L}\d])/gu, (match) => {
     const digits = match.replace(/\D/gu, '');
     const phoneLike = match.startsWith('+') || /[ ().-]/u.test(match) || (/^0/u.test(digits) && digits.length >= 10);
     return digits.length >= 9 && phoneLike ? token(match) : match;
-  });
+  }, traceSteps, 'identifier');
   let ruleApplications: ReadonlyArray<NormalizationRuleApplication> | undefined;
   if (rules && traceSteps) {
-    const result = rules.applyWithTrace(text, token);
+    const positions: Array<{ start: number; end: number }> = [];
+    const result = rules.applyWithTrace(text, token, (_application, start, end) => {
+      positions.push({ start, end });
+    });
     text = result.text;
     ruleApplications = Object.freeze([...earlyRuleApplications, ...result.applications]);
-    for (const application of result.applications) {
-      addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source);
+    for (const [index, application] of result.applications.entries()) {
+      const position = positions[index];
+      const start = position?.start ?? 0;
+      const end = position?.end ?? start + application.matched.length;
+      const sourceRange = sourceMap?.range(start, end - start);
+      addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source, sourceRange);
+    }
+    if (sourceMap) {
+      for (const position of [...positions].reverse()) {
+        const { start, end } = position;
+        sourceMap.replace(start, end - start, 1, 'project-rule');
+      }
     }
   } else if (rules) {
     text = rules.apply(text, token);
   }
   return {
     text,
-    restore: (value) => value.replace(/[\uE100-\uF9FF]/gu, (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark),
+    restore: (value) => replaceWithMappedTokens(
+      value,
+      /[\uE100-\uF9FF]/gu,
+      (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark,
+      traceSteps,
+    ),
     ...(traceSteps ? { ruleApplications: ruleApplications ?? Object.freeze([]) } : {}),
   };
 }
@@ -673,10 +872,11 @@ function normalizeInternal(
   const { abbreviations = true, acronyms = true, punctuation = true } = options;
 
   let source = input.normalize('NFC');
-  addTraceStep(steps, 'unicode', input, source);
+  if (steps) SOURCE_MAPS.set(steps, new NormalizationSourceMap(input, source));
+  addTraceStep(steps, 'unicode', input, source, undefined, { start: 0, end: input.length });
   source = replaceWithTrace(source, /[\u00a0\u202f]/gu, () => ' ', steps, 'unicode');
   source = replaceWithTrace(source, /[’ʼ`´]/gu, () => "'", steps, 'unicode');
-  const protectedInput = protectSpeechAtoms(source, options.rules, steps, steps ? nfcOffsetMap(input) : []);
+  const protectedInput = protectSpeechAtoms(source, options.rules, steps);
   let text = protectedInput.text;
   text = joinDigitGroups(text, steps);
 
@@ -725,4 +925,57 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
 /** Normalize text and report each changed fragment, stage, and configured rule source. */
 export function normalizeWithTrace(input: string, options: NormalizeOptions = {}): NormalizeTraceResult {
   return normalizeInternal(input, options, []);
+}
+
+function alignmentSegments(
+  text: string,
+  sourceMap: NormalizationSourceMap,
+): ReadonlyArray<NormalizationAlignmentSegment> {
+  const origins = sourceMap.origins;
+  if (origins.length !== text.length) throw new Error('normalizeWithAlignment: source map length mismatch');
+  const segments: NormalizationAlignmentSegment[] = [];
+  let spokenStart = 0;
+  while (spokenStart < text.length) {
+    const first = origins[spokenStart]!;
+    let sourceStart = first.start;
+    let sourceEnd = first.end;
+    const stage = first.stage;
+    let spokenEnd = spokenStart + 1;
+    while (spokenEnd < text.length) {
+      const previous = origins[spokenEnd - 1]!;
+      const current = origins[spokenEnd]!;
+      const sameSourceSpan = current.start === previous.start && current.end === previous.end;
+      const adjacentSourceSpans = current.start === previous.end;
+      if (current.stage !== stage || (!sameSourceSpan && !adjacentSourceSpans)) break;
+      sourceStart = Math.min(sourceStart, current.start);
+      sourceEnd = Math.max(sourceEnd, current.end);
+      spokenEnd += 1;
+    }
+    const sourceText = sourceMap.sourceText(sourceStart, sourceEnd);
+    const spokenText = text.slice(spokenStart, spokenEnd);
+    segments.push(Object.freeze({
+      sourceStart,
+      sourceEnd,
+      spokenStart,
+      spokenEnd,
+      sourceText,
+      spokenText,
+      changed: sourceText !== spokenText,
+      ...(stage ? { stage } : {}),
+    }));
+    spokenStart = spokenEnd;
+  }
+  return Object.freeze(segments);
+}
+
+/**
+ * Normalize text and map each output segment to the exact source occurrence
+ * that produced it. Offsets in both strings are UTF-16, like JavaScript slicing.
+ */
+export function normalizeWithAlignment(input: string, options: NormalizeOptions = {}): NormalizeAlignmentResult {
+  const steps: NormalizationTraceStep[] = [];
+  const result = normalizeInternal(input, options, steps);
+  const sourceMap = SOURCE_MAPS.get(steps);
+  if (!sourceMap) throw new Error('normalizeWithAlignment: source map unavailable');
+  return Object.freeze({ ...result, alignment: alignmentSegments(result.text, sourceMap) });
 }
