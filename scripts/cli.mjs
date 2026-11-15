@@ -301,10 +301,12 @@ if (asJson) {
 } else {
   console.log(result.text);
   console.error('');
-  if (normalizationTrace?.ruleApplications.length) {
-    console.error(`правила нормалізації (${normalizationTrace.ruleApplications.length}):`);
-    for (const item of normalizationTrace.ruleApplications)
-      console.error(`- ${item.matched} → ${item.replacement} · ${item.source}`);
+  if (normalizationTrace?.steps.length) {
+    console.error(`перетворення нормалізації (${normalizationTrace.steps.length}):`);
+    for (const step of normalizationTrace.steps) {
+      const source = step.source ? ` · ${step.source}` : '';
+      console.error(`- [${step.stage}] «${step.before}» → «${step.after}» · ${step.explanation}${source}`);
+    }
   }
   if (strictGate) {
     console.error(`strict gate: ${strictGate.passed ? 'passed' : 'failed'} · проблем: ${strictGate.findings.length}`);

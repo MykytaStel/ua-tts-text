@@ -81,7 +81,7 @@ try {
         `const result = prepare('Кодове АТБ 15', { resources, engine: 'piper-medium' });` +
         `const trace = normalizeWithTrace('АТБ', { rules: resources.normalization });` +
         `const gate = checkPrepared(prepare('Так.', { dictionary: StressDictionary.empty(), engine: 'piper-medium' }));` +
-        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary' || trace.ruleApplications[0]?.source !== 'package smoke glossary' || !gate.passed) throw new Error('installed API smoke failed: ' + JSON.stringify({ result, trace, gate }));`,
+        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary' || trace.ruleApplications[0]?.source !== 'package smoke glossary' || !trace.steps.some((step) => step.stage === 'project-rule') || !gate.passed) throw new Error('installed API smoke failed: ' + JSON.stringify({ result, trace, gate }));`,
     ],
     { cwd: temp, encoding: 'utf8' },
   );
@@ -127,9 +127,34 @@ try {
   if (
     normalizationOutput.text !== "Ко́дове а-те-бе п'ятнадцять" ||
     normalizationOutput.normalizationTrace?.ruleApplications?.[0]?.source !== 'package smoke glossary' ||
+    !normalizationOutput.normalizationTrace?.steps?.some((step) => step.stage === 'project-rule') ||
+    !normalizationOutput.normalizationTrace?.steps?.some((step) => step.stage === 'number') ||
     !normalizationOutput.normalizationTrace?.ruleFingerprint
   )
     throw new Error(`installed normalization CLI smoke returned unexpected output: ${normalizationCli.stdout}`);
+
+  const explainedCli = spawnSync(
+    process.execPath,
+    [path.join(installed, 'scripts/cli.mjs'), '--engine', 'piper-medium', '--normalization', normalization, '--explain'],
+    {
+      cwd: temp,
+      encoding: 'utf8',
+      input: 'Кодове АТБ 15',
+      env: {
+        ...process.env,
+        UA_TTS_HOME: path.join(temp, 'home'),
+        UA_TTS_DICT: path.join(temp, 'missing-dict.bin'),
+        UA_TTS_LEXICON: names,
+      },
+    },
+  );
+  if (
+    explainedCli.status !== 0 ||
+    !explainedCli.stderr.includes('[project-rule]') ||
+    !explainedCli.stderr.includes('package smoke glossary') ||
+    !explainedCli.stderr.includes('[number]')
+  )
+    throw new Error(explainedCli.stderr || `human explain CLI smoke returned unexpected output: ${explainedCli.stdout}`);
 
   const strictDictionary = path.join(temp, 'strict-dict.bin');
   writeDictionaryFixture(strictDictionary, [{ word: 'так', position: 1, alternative: 255 }]);
