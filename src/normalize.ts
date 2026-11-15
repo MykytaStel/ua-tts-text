@@ -15,7 +15,7 @@ import {
   yearWords,
   type Gender,
 } from './numbers.js';
-import type { NormalizationRules } from './normalization-rules.js';
+import type { NormalizationRuleApplication, NormalizationRules } from './normalization-rules.js';
 
 export interface NormalizeOptions {
   /** Розгортати «ст.», «тис.», «т.д.» тощо. */
@@ -26,6 +26,12 @@ export interface NormalizeOptions {
   punctuation?: boolean;
   /** Verified project-specific literal readings; null disables resource-provided rules. */
   rules?: NormalizationRules | null;
+}
+
+export interface NormalizeTraceResult {
+  readonly text: string;
+  /** Verified custom-rule occurrences in application order; built-in number and punctuation passes are not listed. */
+  readonly ruleApplications: ReadonlyArray<NormalizationRuleApplication>;
 }
 
 const MONTHS_GENITIVE: Record<string, string> = {
@@ -120,7 +126,15 @@ const ACRONYMS: Readonly<Record<string, string>> = {
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Protect strings whose spelling carries identity rather than a quantity. */
-function protectSpeechAtoms(input: string, rules?: NormalizationRules | null): { text: string; restore: (text: string) => string } {
+function protectSpeechAtoms(
+  input: string,
+  rules?: NormalizationRules | null,
+  traceRules = false,
+): {
+  text: string;
+  restore: (text: string) => string;
+  ruleApplications?: ReadonlyArray<NormalizationRuleApplication>;
+} {
   const atoms: string[] = [];
   const token = (value: string) => {
     const id = atoms.push(value) - 1;
@@ -150,8 +164,19 @@ function protectSpeechAtoms(input: string, rules?: NormalizationRules | null): {
     const phoneLike = match.startsWith('+') || /[ ().-]/u.test(match) || (/^0/u.test(digits) && digits.length >= 10);
     return digits.length >= 9 && phoneLike ? token(match) : match;
   });
-  if (rules) text = rules.apply(text, token);
-  return { text, restore: (value) => value.replace(/[\uE100-\uF9FF]/gu, (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark) };
+  let ruleApplications: ReadonlyArray<NormalizationRuleApplication> | undefined;
+  if (rules && traceRules) {
+    const result = rules.applyWithTrace(text, token);
+    text = result.text;
+    ruleApplications = result.applications;
+  } else if (rules) {
+    text = rules.apply(text, token);
+  }
+  return {
+    text,
+    restore: (value) => value.replace(/[\uE100-\uF9FF]/gu, (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark),
+    ...(traceRules ? { ruleApplications: ruleApplications ?? Object.freeze([]) } : {}),
+  };
 }
 
 function validDottedDate(value: string): boolean {
@@ -452,11 +477,17 @@ function cleanPunctuation(text: string): string {
  * Головна функція: готує текст до синтезу.
  * Порядок важливий — від найдовших конструкцій до окремих чисел.
  */
-export function normalize(input: string, options: NormalizeOptions = {}): string {
+function normalizeInternal(input: string, options: NormalizeOptions, traceRules: true): NormalizeTraceResult;
+function normalizeInternal(input: string, options: NormalizeOptions, traceRules: false): string;
+function normalizeInternal(
+  input: string,
+  options: NormalizeOptions,
+  traceRules: boolean,
+): string | NormalizeTraceResult {
   const { abbreviations = true, acronyms = true, punctuation = true } = options;
 
   const source = input.normalize('NFC').replace(/[\u00a0\u202f]/gu, ' ').replace(/[’ʼ`´]/gu, "'");
-  const protectedInput = protectSpeechAtoms(source, options.rules);
+  const protectedInput = protectSpeechAtoms(source, options.rules, traceRules);
   let text = protectedInput.text;
   text = text.replace(/[\u00a0\u202f]/gu, ' ');
   text = text.replace(/[’ʼ`´]/gu, "'");
@@ -493,5 +524,16 @@ export function normalize(input: string, options: NormalizeOptions = {}): string
   });
 
   if (punctuation) text = cleanPunctuation(text);
-  return protectedInput.restore(text);
+  const normalized = protectedInput.restore(text);
+  if (!traceRules) return normalized;
+  return Object.freeze({ text: normalized, ruleApplications: protectedInput.ruleApplications! });
+}
+
+export function normalize(input: string, options: NormalizeOptions = {}): string {
+  return normalizeInternal(input, options, false);
+}
+
+/** Normalize text and report which configured literal rules fired. */
+export function normalizeWithTrace(input: string, options: NormalizeOptions = {}): NormalizeTraceResult {
+  return normalizeInternal(input, options, true);
 }

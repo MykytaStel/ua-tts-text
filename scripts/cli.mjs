@@ -7,7 +7,16 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { loadResources, createOpenAiAsker, lint, normalize, prepare, prepareMany } from '../dist/index.js';
+import {
+  loadResources,
+  createOpenAiAsker,
+  checkPrepared,
+  lint,
+  normalize,
+  normalizeWithTrace,
+  prepare,
+  prepareMany,
+} from '../dist/index.js';
 
 const REVIEW_FORMAT = 'ua-tts-text-review';
 const REVIEW_VERSION = 2;
@@ -99,8 +108,33 @@ function arg(name, fallback) {
   return index >= 0 ? process.argv[index + 1] : fallback;
 }
 
+function positionalInput() {
+  const valueOptions = new Set([
+    'engine',
+    'dict',
+    'lexicon',
+    'normalization',
+    'decisions',
+    'review-out',
+    'apply-review',
+    'max-prompt-chars',
+    'resolution-failure',
+  ]);
+  for (let index = 2; index < process.argv.length; index++) {
+    const value = process.argv[index];
+    if (value.startsWith('--')) {
+      if (valueOptions.has(value.slice(2))) index++;
+      continue;
+    }
+    if (!value.endsWith('.bin')) return value;
+  }
+  return '';
+}
+
 const engine = arg('engine', 'plain');
 const asJson = process.argv.includes('--json');
+const strictMode = process.argv.includes('--strict');
+const explainMode = process.argv.includes('--explain');
 const decisionsArg = arg('decisions', '');
 const decisions = decisionsArg ? JSON.parse(readFileSync(path.resolve(decisionsArg), 'utf8')) : {};
 const reviewOutArg = arg('review-out', '');
@@ -109,20 +143,23 @@ if (process.argv.includes('--review-out') && (!reviewOutArg || reviewOutArg.star
   throw new Error('--review-out requires a file path');
 if (process.argv.includes('--apply-review') && (!applyReviewArg || applyReviewArg.startsWith('--')))
   throw new Error('--apply-review requires a file path');
+const normalizationArg = arg('normalization', '');
+if (process.argv.includes('--normalization') && (!normalizationArg || normalizationArg.startsWith('--')))
+  throw new Error('--normalization requires a file path');
 if (reviewOutArg && applyReviewArg) throw new Error('use only one of --review-out or --apply-review');
 if ((reviewOutArg || applyReviewArg) && decisionsArg)
   throw new Error('--decisions cannot be combined with occurrence review; use choices in the review file');
 
 let input = '';
 if (process.stdin.isTTY) {
-  input = process.argv.slice(2).find((a) => !a.startsWith('--') && !a.endsWith('.bin')) ?? '';
+  input = positionalInput();
 } else {
   input = readFileSync(0, 'utf8');
 }
 
 if (!input.trim()) {
   console.error(
-    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--decisions file | --review-out file | --apply-review file] [--resolve] [--explain] [--json] < script.txt',
+    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--normalization path] [--decisions file | --review-out file | --apply-review file] [--resolve] [--explain] [--strict] [--json] < script.txt',
   );
   process.exit(2);
 }
@@ -130,6 +167,7 @@ if (!input.trim()) {
 const resources = loadResources({
   ...(arg('dict', '') ? { dictionaryPath: arg('dict') } : {}),
   ...(arg('lexicon', '') ? { lexiconPath: arg('lexicon') } : {}),
+  ...(normalizationArg ? { normalizationPath: normalizationArg } : {}),
 });
 const disableContext = process.argv.includes('--no-context');
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
@@ -152,7 +190,11 @@ const base = {
   resources,
   engine,
   ...(disableContext ? { context: null } : {}),
-  stress: { decisions, trace: process.argv.includes('--explain') || Boolean(reviewOutArg || applyReviewArg) },
+  stress: {
+    decisions,
+    trace: explainMode || Boolean(reviewOutArg || applyReviewArg),
+    ...(strictMode ? { minReportLength: 1 } : {}),
+  },
 };
 
 let batch;
@@ -225,7 +267,13 @@ if (reviewSummary?.mode === 'applied')
   console.error(
     `застосовано рішень: омонімів ${reviewSummary.appliedHomographs}, невідомих слів ${reviewSummary.appliedUnknownWords} · лишилось нерозв'язаними: омонімів ${reviewSummary.unresolvedHomographs}, невідомих слів ${reviewSummary.unresolvedUnknownWords}`,
   );
-const issues = lint(result.text);
+const strictGate = strictMode ? checkPrepared(result) : undefined;
+const issues = strictGate
+  ? strictGate.findings.flatMap((finding) => (finding.kind === 'lint' ? [finding.issue] : []))
+  : lint(result.text);
+const normalizationTrace = explainMode
+  ? normalizeWithTrace(input.trim(), { rules: resources.normalization })
+  : undefined;
 
 if (asJson) {
   console.log(
@@ -234,6 +282,15 @@ if (asJson) {
         ...result,
         issues,
         resources: resources.manifest,
+        ...(normalizationTrace
+          ? {
+              normalizationTrace: {
+                ...normalizationTrace,
+                ruleFingerprint: resources.normalization.fingerprint,
+              },
+            }
+          : {}),
+        ...(strictGate ? { strictGate } : {}),
         ...(ask && batch ? { resolution: { decisions: batch.decisions, missing: batch.missing, warnings: batch.warnings, promptLength: batch.promptLength } } : {}),
         ...(reviewSummary ? { review: reviewSummary } : {}),
       },
@@ -244,6 +301,15 @@ if (asJson) {
 } else {
   console.log(result.text);
   console.error('');
+  if (normalizationTrace?.ruleApplications.length) {
+    console.error(`правила нормалізації (${normalizationTrace.ruleApplications.length}):`);
+    for (const item of normalizationTrace.ruleApplications)
+      console.error(`- ${item.matched} → ${item.replacement} · ${item.source}`);
+  }
+  if (strictGate) {
+    console.error(`strict gate: ${strictGate.passed ? 'passed' : 'failed'} · проблем: ${strictGate.findings.length}`);
+    for (const finding of strictGate.findings) console.error(`- ${JSON.stringify(finding)}`);
+  }
   console.error(`рушій: ${result.engine} · слів з наголосом: ${result.marked}`);
   console.error(`омоніми (${result.ambiguous.length}): ${result.ambiguous.join(', ') || '—'}`);
   console.error(`немає у словнику (${result.unknown.length}): ${result.unknown.join(', ') || '—'}`);
@@ -252,3 +318,4 @@ if (asJson) {
   for (const warning of batch?.warnings ?? []) console.error(`увага: ${warning}`);
   if (batch?.missing.length) console.error(`нерозв’язані входження (${batch.missing.length}): ${batch.missing.join(', ')}`);
 }
+if (strictGate && !strictGate.passed) process.exitCode = 1;

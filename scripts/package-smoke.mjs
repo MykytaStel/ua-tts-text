@@ -76,10 +76,12 @@ try {
     [
       '--input-type=module',
       '-e',
-      `import { loadResources, prepare } from ${JSON.stringify(path.join(installed, 'dist/index.js'))};` +
+      `import { checkPrepared, loadResources, normalizeWithTrace, prepare, StressDictionary } from ${JSON.stringify(path.join(installed, 'dist/index.js'))};` +
         `const resources = loadResources({ packageRoot: ${JSON.stringify(installed)}, home: ${JSON.stringify(path.join(temp, 'home'))}, dictionaryPath: ${JSON.stringify(path.join(temp, 'missing-dict.bin'))}, lexiconPath: ${JSON.stringify(names)}, normalizationPath: ${JSON.stringify(normalization)} });` +
         `const result = prepare('Кодове АТБ 15', { resources, engine: 'piper-medium' });` +
-        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary') throw new Error('installed API smoke failed: ' + JSON.stringify(result));`,
+        `const trace = normalizeWithTrace('АТБ', { rules: resources.normalization });` +
+        `const gate = checkPrepared(prepare('Так.', { dictionary: StressDictionary.empty(), engine: 'piper-medium' }));` +
+        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary' || trace.ruleApplications[0]?.source !== 'package smoke glossary' || !gate.passed) throw new Error('installed API smoke failed: ' + JSON.stringify({ result, trace, gate }));`,
     ],
     { cwd: temp, encoding: 'utf8' },
   );
@@ -104,6 +106,51 @@ try {
   const result = JSON.parse(cli.stdout);
   if (result.text !== 'Ко́дове' || !result.resourceFingerprint || !result.resources?.fingerprint)
     throw new Error(`installed CLI smoke returned unexpected output: ${cli.stdout}`);
+
+  const normalizationCli = spawnSync(
+    process.execPath,
+    [path.join(installed, 'scripts/cli.mjs'), '--engine', 'piper-medium', '--normalization', normalization, '--explain', '--json'],
+    {
+      cwd: temp,
+      encoding: 'utf8',
+      input: 'Кодове АТБ 15',
+      env: {
+        ...process.env,
+        UA_TTS_HOME: path.join(temp, 'home'),
+        UA_TTS_DICT: path.join(temp, 'missing-dict.bin'),
+        UA_TTS_LEXICON: names,
+      },
+    },
+  );
+  if (normalizationCli.status !== 0) throw new Error(normalizationCli.stderr || 'installed normalization CLI smoke failed');
+  const normalizationOutput = JSON.parse(normalizationCli.stdout);
+  if (
+    normalizationOutput.text !== "Ко́дове а-те-бе п'ятнадцять" ||
+    normalizationOutput.normalizationTrace?.ruleApplications?.[0]?.source !== 'package smoke glossary' ||
+    !normalizationOutput.normalizationTrace?.ruleFingerprint
+  )
+    throw new Error(`installed normalization CLI smoke returned unexpected output: ${normalizationCli.stdout}`);
+
+  const strictDictionary = path.join(temp, 'strict-dict.bin');
+  writeDictionaryFixture(strictDictionary, [{ word: 'так', position: 1, alternative: 255 }]);
+  const strictPass = spawnSync(
+    process.execPath,
+    [path.join(installed, 'scripts/cli.mjs'), '--engine', 'tts-uk', '--dict', strictDictionary, '--strict', '--json'],
+    { cwd: temp, encoding: 'utf8', input: 'Так.' },
+  );
+  if (strictPass.status !== 0 || !JSON.parse(strictPass.stdout).strictGate?.passed)
+    throw new Error(strictPass.stderr || `strict CLI rejected clean speech: ${strictPass.stdout}`);
+  const strictFailure = spawnSync(
+    process.execPath,
+    [path.join(installed, 'scripts/cli.mjs'), '--engine', 'tts-uk', '--dict', strictDictionary, '--strict', '--json'],
+    { cwd: temp, encoding: 'utf8', input: 'Краудфандинг' },
+  );
+  if (
+    strictFailure.status !== 1 ||
+    JSON.parse(strictFailure.stdout).strictGate?.passed !== false ||
+    !JSON.parse(strictFailure.stdout).strictGate.findings.some((finding) => finding.kind === 'unknown-word')
+  )
+    throw new Error(`strict CLI accepted unresolved speech: ${strictFailure.stdout}${strictFailure.stderr}`);
 
   const reviewDictionary = path.join(temp, 'review-dict.bin');
   const changedReviewDictionary = path.join(temp, 'changed-review-dict.bin');

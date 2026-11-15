@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { normalize } from '../src/normalize.js';
+import { normalize, normalizeWithTrace } from '../src/normalize.js';
 import { NormalizationRules } from '../src/normalization-rules.js';
 
 it('applies verified literal readings once, longest phrase first, without touching neighboring words', () => {
@@ -33,6 +33,35 @@ it('protects replacement text from normalizer passes while still normalizing sur
   expect(normalize('АТБ 15', { rules })).toBe("бренд 15 п'ятнадцять");
   const apostropheRule = NormalizationRules.parseTsv("п’ять\tп'ять\tглосарій\tverified");
   expect(normalize('пʼять', { rules: apostropheRule })).toBe("п'ять");
+});
+
+it('traces every verified occurrence with its configured phrase and provenance', () => {
+  const rules = NormalizationRules.parseTsv(
+    'АТБ\tа-те-бе\tредактор проєкту\tverified\nКиївська область\tКиївщина\tглосарій\tverified',
+  );
+  const result = rules.applyWithTrace('АТБ і аТб, Київська область');
+
+  expect(result.text).toBe('а-те-бе і а-те-бе, Київщина');
+  expect(result.applications).toEqual([
+    { matched: 'АТБ', match: 'АТБ', replacement: 'а-те-бе', source: 'редактор проєкту' },
+    { matched: 'аТб', match: 'АТБ', replacement: 'а-те-бе', source: 'редактор проєкту' },
+    { matched: 'Київська область', match: 'Київська область', replacement: 'Київщина', source: 'глосарій' },
+  ]);
+  expect(Object.isFrozen(result.applications)).toBe(true);
+  expect(Object.isFrozen(result.applications[0])).toBe(true);
+});
+
+it('normalizes identically while tracing custom rules and leaves protected URLs alone', () => {
+  const rules = NormalizationRules.parseTsv(
+    'example.org\tпідміна URL\tне застосовувати в посиланні\tverified\nАТБ\tа-те-бе\tглосарій\tverified',
+  );
+  const result = normalizeWithTrace('https://example.org АТБ 15', { rules });
+
+  expect(result.text).toBe("https://example.org а-те-бе п'ятнадцять");
+  expect(normalize('https://example.org АТБ 15', { rules })).toBe(result.text);
+  expect(result.ruleApplications).toEqual([
+    { matched: 'АТБ', match: 'АТБ', replacement: 'а-те-бе', source: 'глосарій' },
+  ]);
 });
 
 it('validates TSV provenance, duplicate keys, statuses, and immutable snapshots', () => {
