@@ -12,6 +12,19 @@ export interface NormalizationRule {
   readonly status: NormalizationRuleStatus;
 }
 
+/** One verified rule occurrence, in left-to-right application order. */
+export interface NormalizationRuleApplication {
+  readonly matched: string;
+  readonly match: string;
+  readonly replacement: string;
+  readonly source: string;
+}
+
+export interface NormalizationRuleApplyResult {
+  readonly text: string;
+  readonly applications: ReadonlyArray<NormalizationRuleApplication>;
+}
+
 export interface NormalizationRuleOptions {
   source: string;
   status?: NormalizationRuleStatus;
@@ -142,11 +155,33 @@ export class NormalizationRules {
 
   /** Apply active rules once; `protect` can keep replacements out of later passes. */
   apply(input: string, protect: (replacement: string) => string = (replacement) => replacement): string {
+    return this.#apply(input, protect);
+  }
+
+  /** Apply active rules once and report every verified occurrence. */
+  applyWithTrace(
+    input: string,
+    protect: (replacement: string) => string = (replacement) => replacement,
+  ): NormalizationRuleApplyResult {
+    const applications: NormalizationRuleApplication[] = [];
+    const text = this.#apply(input, protect, applications);
+    return Object.freeze({ text, applications: Object.freeze(applications) });
+  }
+
+  #apply(
+    input: string,
+    protect: (replacement: string) => string,
+    applications?: NormalizationRuleApplication[],
+  ): string {
     this.#compile();
     if (!this.#matcher) return input;
     return input.replace(this.#matcher, (matched) => {
       const entry = this.#entries.get(keyOf(matched));
-      return entry?.status === 'verified' ? protect(entry.replacement) : matched;
+      if (entry?.status !== 'verified') return matched;
+      applications?.push(
+        Object.freeze({ matched, match: entry.match, replacement: entry.replacement, source: entry.source }),
+      );
+      return protect(entry.replacement);
     });
   }
 

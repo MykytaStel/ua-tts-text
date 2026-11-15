@@ -8,7 +8,7 @@ import { StressDictionary } from './dict.js';
 import type { StressSource } from './lexicon.js';
 import { normalize, type NormalizeOptions } from './normalize.js';
 import { ENGINES, render, type EngineId, type RenderResult } from './render.js';
-import { homographs, type Homograph } from './review.js';
+import { homographs, lint, type Homograph, type Issue } from './review.js';
 import { resolveOccurrences, resolveUnknown, type Asker, type ResolveOptions } from './resolve.js';
 import type { Decisions } from './agent.js';
 import { convertStressMarks, type StressEvidence, type StressOptions } from './stress.js';
@@ -61,6 +61,32 @@ export interface PrepareResult {
   contextual: number;
   evidence?: StressEvidence[];
   resourceFingerprint?: string;
+}
+
+export type PreparedFinding =
+  | { readonly kind: 'lint'; readonly issue: Issue }
+  | { readonly kind: 'ambiguous'; readonly word: string; readonly offset: number }
+  | { readonly kind: 'unknown-word'; readonly word: string }
+  | { readonly kind: 'resource'; readonly warning: string };
+
+export interface PreparedCheckResult {
+  readonly passed: boolean;
+  readonly findings: ReadonlyArray<PreparedFinding>;
+}
+
+/** Shared readiness gate for CLI, Studio, and other synthesis integrations. */
+export function checkPrepared(
+  result: Pick<PrepareResult, 'text' | 'ambiguousOccurrences' | 'unknown' | 'warnings'>,
+): PreparedCheckResult {
+  const findings: PreparedFinding[] = [
+    ...lint(result.text).map((issue) => Object.freeze({ kind: 'lint' as const, issue: Object.freeze(issue) })),
+    ...result.ambiguousOccurrences.map(({ word, offset }) => Object.freeze({ kind: 'ambiguous' as const, word, offset })),
+    ...result.unknown.map((word) => Object.freeze({ kind: 'unknown-word' as const, word })),
+    ...result.warnings
+      .filter((warning) => /dictionary missing|malformed entries ignored/iu.test(warning))
+      .map((warning) => Object.freeze({ kind: 'resource' as const, warning })),
+  ];
+  return Object.freeze({ passed: findings.length === 0, findings: Object.freeze(findings) });
 }
 
 export interface PrepareManyOptions extends PrepareOptions {

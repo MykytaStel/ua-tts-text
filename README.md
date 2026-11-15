@@ -26,7 +26,8 @@
 | SKILL.md для агентів | ✅ `skills/ua-voiceover-prep/` |
 | Сліпе A/B аудіо для двох версій | ✅ нова команда `ua-tts-text-blind-audio` у `0.16.0` |
 | Проєктні правила читання | ✅ `NormalizationRules` і локальний `normalization.tsv` у `0.17.0` |
-| Публікація | npm `latest` — `0.16.0`; `0.17.0` змерджений у `main`, ще не опублікований (перевірено 2026-11-15) |
+| CLI для проєктних правил | 🚧 `--normalization` і пояснення застосованих правил у `0.18.0` |
+| Публікація | npm `latest` — `0.17.0`; Git-тег `v0.17.0` створений (перевірено 2026-11-15) |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
@@ -247,6 +248,37 @@ npx ua-tts-text --engine tts-uk < script.txt
 node scripts/cli.mjs --engine tts-uk < script.txt
 node scripts/cli.mjs --engine tts-uk --decisions corpus/decisions.json < script.txt
 node scripts/cli.mjs --engine piper-high --json < script.txt
+node scripts/cli.mjs --engine piper-medium --normalization project/normalization.tsv --explain --json < script.txt
+node scripts/cli.mjs --engine tts-uk --strict --json < script.txt
+```
+
+`--normalization <path>` явно вибирає TSV із проєктними правилами й перекриває
+`UA_TTS_NORMALIZATION`. З `--explain --json` поле `normalizationTrace` містить
+нормалізований текст, fingerprint таблиці та кожне спрацювання: фактичний збіг,
+налаштовану фразу, читання й джерело. `--explain` без `--json` друкує ці спрацювання
+у stderr. Трасування показує лише літеральні правила з таблиці, не вбудовані числові
+та пунктуаційні перетворення.
+
+`--strict` додає `strictGate` у JSON та завершує CLI з кодом `1`, якщо лишилися
+lint-проблеми, невирішені омоніми/невідомі слова або відсутній/неповний словник.
+Попередження про рушії, що навмисно не приймають позначки наголосу, саме по собі
+строгий режим не провалює.
+
+Той самий гейт доступний із програмного API: `checkPrepared(result)` повертає
+`passed` і структурований список `findings`; Studio може відмовитися запускати
+синтез за тим самим правилом, що й CI. Щоб він також побачив короткі невідомі
+багатоскладові слова, передай у `prepare()` `stress: { minReportLength: 1 }`;
+CLI робить це автоматично в режимі `--strict`.
+
+```ts
+const resources = loadResources({ required: true });
+const prepared = prepare(input, {
+  resources,
+  engine: 'tts-uk',
+  stress: { minReportLength: 1 },
+});
+const gate = checkPrepared(prepared);
+if (!gate.passed) console.error(gate.findings);
 ```
 
 ### Ручний перегляд омонімів і невідомих слів (CLI у 0.15.0)
@@ -376,7 +408,7 @@ on the regression corpus is not an independent held-out or listening assessment.
 
 ## Проєктні правила читання
 
-Для скорочень, назв брендів і точних фраз, яких немає у вбудованій таблиці, створи `~/.local/share/ua-tts-text/normalization.tsv` або вкажи шлях через `UA_TTS_NORMALIZATION`. Формат рядка: `збіг<TAB>читання<TAB>джерело<TAB>статус`:
+Для скорочень, назв брендів і точних фраз, яких немає у вбудованій таблиці, створи `~/.local/share/ua-tts-text/normalization.tsv`, вкажи шлях через `UA_TTS_NORMALIZATION` або передай `--normalization project/normalization.tsv` у CLI. Формат рядка: `збіг<TAB>читання<TAB>джерело<TAB>статус`:
 
 ```tsv
 АТБ	а-те-бе	затверджено редактором проєкту	verified
@@ -387,6 +419,15 @@ on the regression corpus is not an independent held-out or listening assessment.
 Правила збігаються як цілі літеральні фрази без урахування регістру; кілька пробілів вважаються одним. Для перекривних фраз береться найдовша. Читання не проганяється повторно через нормалізатор, щоб зберегти його текст. Локальний рядок перекриває вбудований із тим самим збігом. `draft` і `rejected` доступні через `resources.normalization.inactiveEntries`, але не застосовуються.
 
 `prepare()` завантажує правила зі спільним знімком ресурсів; змінений TSV змінює fingerprint і може скинути кеш синтезу. Пояснення конкретного збігу доступне через `resources.normalization.explain('АТБ')`. Для прямого виклику можна передати `normalize(text, { rules })`.
+
+Щоб побачити всі застосовані проєктні правила за один виклик, скористайся `normalizeWithTrace()`:
+
+```ts
+const { text, ruleApplications } = normalizeWithTrace(input, { rules: resources.normalization });
+// Кожне входження окремо: matched, налаштоване match, replacement і source.
+```
+
+Ця траса охоплює літеральні правила з TSV; вона не перелічує вбудовані перетворення чисел, дат і пунктуації.
 
 ## Оцінювання
 
