@@ -28,10 +28,90 @@ export interface NormalizeOptions {
   rules?: NormalizationRules | null;
 }
 
+export type NormalizationTraceStage =
+  | 'unicode'
+  | 'project-rule'
+  | 'digit-groups'
+  | 'ordinal-date'
+  | 'ordinal'
+  | 'date'
+  | 'ratio'
+  | 'year-range'
+  | 'range'
+  | 'year'
+  | 'century'
+  | 'percent'
+  | 'currency'
+  | 'unit'
+  | 'abbreviation'
+  | 'acronym'
+  | 'identifier'
+  | 'number'
+  | 'punctuation';
+
+export interface NormalizationTraceStep {
+  readonly stage: NormalizationTraceStage;
+  /** The matched fragment before this pass; offsets are relative to the pass and are not exposed. */
+  readonly before: string;
+  readonly after: string;
+  readonly explanation: string;
+  readonly source?: string;
+}
+
 export interface NormalizeTraceResult {
   readonly text: string;
-  /** Verified custom-rule occurrences in application order; built-in number and punctuation passes are not listed. */
+  /** Verified custom-rule occurrences in application order. Kept for compatibility with 0.18 consumers. */
   readonly ruleApplications: ReadonlyArray<NormalizationRuleApplication>;
+  /** Every changed matched fragment in normalization order, including custom rules and built-in passes. */
+  readonly steps: ReadonlyArray<NormalizationTraceStep>;
+}
+
+const STAGE_EXPLANATIONS: Record<NormalizationTraceStage, string> = {
+  unicode: 'Уніфіковано Unicode, пробіл або апостроф.',
+  'project-rule': 'Застосовано перевірене проєктне правило читання.',
+  'digit-groups': 'Об’єднано групи цифр у числі.',
+  'ordinal-date': 'Порядковий номер дати розгорнуто словами.',
+  ordinal: 'Порядкове число розгорнуто словами.',
+  date: 'Календарну дату розгорнуто словами.',
+  ratio: 'Числове співвідношення розгорнуто словами.',
+  'year-range': 'Діапазон років розгорнуто словами.',
+  range: 'Числовий діапазон розгорнуто словами.',
+  year: 'Рік або тривалість розгорнуто словами.',
+  century: 'Римський номер століття розгорнуто словами.',
+  percent: 'Відсоток узгоджено з числом.',
+  currency: 'Суму з масштабом і валютою розгорнуто словами.',
+  unit: 'Число узгоджено з назвою одиниці.',
+  abbreviation: 'Скорочення розгорнуто словами.',
+  acronym: 'Абревіатуру розгорнуто для читання.',
+  identifier: 'Позначення номера розгорнуто словами.',
+  number: 'Число розгорнуто словами.',
+  punctuation: 'Пунктуацію пристосовано до синтезу.',
+};
+
+function addTraceStep(
+  steps: NormalizationTraceStep[] | undefined,
+  stage: NormalizationTraceStage,
+  before: string,
+  after: string,
+  source?: string,
+): void {
+  if (!steps || before === after) return;
+  steps.push(Object.freeze({ stage, before, after, explanation: STAGE_EXPLANATIONS[stage], ...(source ? { source } : {}) }));
+}
+
+function replaceWithTrace<Args extends unknown[]>(
+  text: string,
+  pattern: RegExp,
+  replacer: (match: string, ...args: Args) => string,
+  steps: NormalizationTraceStep[] | undefined,
+  stage: NormalizationTraceStage,
+): string {
+  if (!steps) return text.replace(pattern, replacer);
+  return text.replace(pattern, (match, ...args) => {
+    const after = replacer(match, ...(args as Args));
+    addTraceStep(steps, stage, match, after);
+    return after;
+  });
 }
 
 const MONTHS_GENITIVE: Record<string, string> = {
@@ -129,7 +209,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function protectSpeechAtoms(
   input: string,
   rules?: NormalizationRules | null,
-  traceRules = false,
+  traceSteps?: NormalizationTraceStep[],
 ): {
   text: string;
   restore: (text: string) => string;
@@ -165,17 +245,20 @@ function protectSpeechAtoms(
     return digits.length >= 9 && phoneLike ? token(match) : match;
   });
   let ruleApplications: ReadonlyArray<NormalizationRuleApplication> | undefined;
-  if (rules && traceRules) {
+  if (rules && traceSteps) {
     const result = rules.applyWithTrace(text, token);
     text = result.text;
     ruleApplications = result.applications;
+    for (const application of result.applications) {
+      addTraceStep(traceSteps, 'project-rule', application.matched, application.replacement, application.source);
+    }
   } else if (rules) {
     text = rules.apply(text, token);
   }
   return {
     text,
     restore: (value) => value.replace(/[\uE100-\uF9FF]/gu, (mark) => atoms[mark.codePointAt(0)! - 0xe100] ?? mark),
-    ...(traceRules ? { ruleApplications: ruleApplications ?? Object.freeze([]) } : {}),
+    ...(traceSteps ? { ruleApplications: ruleApplications ?? Object.freeze([]) } : {}),
   };
 }
 
@@ -192,8 +275,8 @@ function validDottedDate(value: string): boolean {
 }
 
 /** «24 251» → «24251»: пробіл усередині числа ламає читання. */
-function joinDigitGroups(text: string): string {
-  return text.replace(/(\d)[\s\u00a0](?=\d{3}\b)/gu, '$1');
+function joinDigitGroups(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(\d)[\s\u00a0](?=\d{3}\b)/gu, (match, digit: string) => digit, steps, 'digit-groups');
 }
 
 /** «2,8 млн» → 2800000: масштабні слова читаються повним числом, а не «дві цілих». */
@@ -219,10 +302,10 @@ const CURRENCIES: ReadonlyArray<readonly [string, { forms: readonly [string, str
 ];
 
 /** «250 тис. грн.» → «двісті п'ятдесят тисяч гривень»: масштаб і валюта розгортаються разом. */
-function expandScaledCurrency(text: string): string {
+function expandScaledCurrency(text: string, steps?: NormalizationTraceStep[]): string {
   const currencies = CURRENCIES.map(([c]) => escapeRe(c)).join('|');
   const re = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(тис\\.|млн\\.?|млрд\\.?)\\s*(${currencies})(?![\\p{L}\\d])`, 'giu');
-  return text.replace(re, (match, rawNumber: string, scale: string, currencyRaw: string) => {
+  return replaceWithTrace(text, re, (match, rawNumber: string, scale: string, currencyRaw: string) => {
     const value = parseNumeric(rawNumber);
     if (value === null) return match;
     const unitScale = scale.replace(/\.$/u, '');
@@ -234,14 +317,14 @@ function expandScaledCurrency(text: string): string {
     const words = cardinal(Math.round(total), currency[1]?.gender ?? 'm');
     if (!currency[1]) return `${words} євро`;
     return `${words} ${pluralForm(Math.round(total), currency[1].forms)}`;
-  });
+  }, steps, 'currency');
 }
 
-function expandUnits(text: string): string {
+function expandUnits(text: string, steps?: NormalizationTraceStep[]): string {
   const names = [...UNITS].map(([u]) => escapeRe(u)).sort((a, b) => b.length - a.length);
   const re = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${names.join('|')})(?![\\p{L}\\d])`, 'giu');
 
-  return text.replace(re, (match, rawNumber: string, unitRaw: string, offset: number, whole: string) => {
+  return replaceWithTrace(text, re, (match, rawNumber: string, unitRaw: string, offset: number, whole: string) => {
     const unit = UNITS.find(([u]) => u.toLowerCase() === unitRaw.toLowerCase());
     if (!unit) return match;
     const [, def] = unit;
@@ -268,21 +351,21 @@ function expandUnits(text: string): string {
       return `${readNumber(rawNumber, def.gender)} ${genitive}${trailingAbbreviationPeriod}`;
     }
     return `${cardinal(value, def.gender)} ${pluralForm(value, def.forms)}${trailingAbbreviationPeriod}`;
-  });
+  }, steps, 'unit');
 }
 
-function expandPercent(text: string): string {
-  return text.replace(/(\d+(?:[.,]\d+)?)\s*%/gu, (_m, raw: string) => {
+function expandPercent(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(\d+(?:[.,]\d+)?)\s*%/gu, (_m, raw: string) => {
     const value = parseNumeric(raw);
     if (value === null) return _m;
     const words = readNumber(raw, 'm');
     return `${words} ${pluralForm(value, ['відсоток', 'відсотки', 'відсотків'])}`;
-  });
+  }, steps, 'percent');
 }
 
-function expandYears(text: string): string {
+function expandYears(text: string, steps?: NormalizationTraceStep[]): string {
   const re = /(\d{1,4})(?:-[а-яіїєґ]+)?\s*(року|році|рік|роках|роки|років|рр\.|р\.)/giu;
-  return text.replace(re, (match, rawYear: string, noun: string, offset: number, whole: string) => {
+  return replaceWithTrace(text, re, (match, rawYear: string, noun: string, offset: number, whole: string) => {
     const year = Number(rawYear);
     if (!Number.isFinite(year) || year > 2999) return match;
     // «5 р.», «за 4 роки» — це тривалість, а не «п'ятий рік» чи «четверті роки».
@@ -295,20 +378,23 @@ function expandYears(text: string): string {
     }
     const nounForm = noun === 'р.' ? 'року' : noun === 'рр.' ? 'роках' : noun;
     return yearWords(year, nounForm) ?? match;
-  });
+  }, steps, 'year');
 }
 
-function expandYearRanges(text: string): string {
-  return text.replace(
+function expandYearRanges(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(
+    text,
     /(\d{4})\s*[–—-]\s*(\d{4})\s*(роках|роками|роки|років|року|рр\.)/giu,
     (match, from: string, to: string, noun: string) => {
       return yearRangeWords(Number(from), Number(to), noun) ?? match;
     },
+    steps,
+    'year-range',
   );
 }
 
 /** «15–20 м/с» → «від п'ятнадцяти до двадцяти метрів за секунду». */
-function expandRanges(text: string): string {
+function expandRanges(text: string, steps?: NormalizationTraceStep[]): string {
   const units = [...UNITS]
     .map(([u]) => escapeRe(u))
     .sort((a, b) => b.length - a.length)
@@ -320,7 +406,7 @@ function expandRanges(text: string): string {
     'gu',
   );
 
-  return text.replace(re, (match, fromRaw: string, toRaw: string, unitRaw: string | undefined, offset: number, whole: string) => {
+  return replaceWithTrace(text, re, (match, fromRaw: string, toRaw: string, unitRaw: string | undefined, offset: number, whole: string) => {
     const from = Number(fromRaw);
     const to = Number(toRaw);
     if (!Number.isFinite(from) || !Number.isFinite(to)) return match;
@@ -333,10 +419,10 @@ function expandRanges(text: string): string {
     if (!unit) return `${head} ${unitRaw}`;
     // Після «від … до …» іменник стоїть у родовому множини: «до семи кілометрів».
     return `${head} ${to === 1 ? (unit[1].genitiveSingular ?? unit[1].forms[2]) : unit[1].forms[2]}${trailingAbbreviationPeriod}`;
-  });
+  }, steps, 'range');
 }
 
-function expandRomanCenturies(text: string): string {
+function expandRomanCenturies(text: string, steps?: NormalizationTraceStep[]): string {
   const values: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
   const forms: Record<string, 'gen' | 'loc' | 'plurLoc'> = {
     століття: 'gen',
@@ -346,7 +432,7 @@ function expandRomanCenturies(text: string): string {
   };
   // \b не працює для кирилиці, тому межу перевіряємо lookbehind-ом.
   const re = /(?<![\p{L}])([IVXLC]{1,5})\s+(століття|столітті|століть|ст\.)/giu;
-  return text.replace(re, (match, romanRaw: string, noun: string) => {
+  return replaceWithTrace(text, re, (match, romanRaw: string, noun: string) => {
     const roman = romanRaw.toUpperCase();
     let total = 0;
     for (let i = 0; i < roman.length; i += 1) {
@@ -358,18 +444,18 @@ function expandRomanCenturies(text: string): string {
     const form = forms[noun.toLowerCase()];
     if (!form) return match;
     return `${inflectOrdinal(ordinal(total), form)} ${noun}`;
-  });
+  }, steps, 'century');
 }
 
 const DIGITS_WORDS = ['нуль', 'один', 'два', 'три', 'чотири', "п'ять", 'шість', 'сім', 'вісім', "дев'ять"];
 
 /** «1-го січня» → «першого січня». */
-function expandOrdinalDates(text: string): string {
-  return text.replace(/(\d{1,2})-го(?![\p{L}\d])/giu, (match, day: string) => {
+function expandOrdinalDates(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(\d{1,2})-го(?![\p{L}\d])/giu, (match, day: string) => {
     const value = Number(day);
     if (!Number.isFinite(value) || value < 1 || value > 31) return match;
     return inflectOrdinal(ordinal(value), 'gen');
-  });
+  }, steps, 'ordinal-date');
 }
 
 const ORDINAL_SUFFIXES: Readonly<Record<string, OrdinalForm>> = {
@@ -395,26 +481,26 @@ const ORDINAL_SUFFIXES: Readonly<Record<string, OrdinalForm>> = {
 };
 
 /** «5-й поверх» → «п'ятий поверх», «2-га черга» → «друга черга». */
-function expandOrdinalSuffixes(text: string): string {
-  return text.replace(/(\d{1,3})-([а-яіїєґ]{1,3})(?![\p{L}\d])/giu, (match, raw: string, suffixRaw: string) => {
+function expandOrdinalSuffixes(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(\d{1,3})-([а-яіїєґ]{1,3})(?![\p{L}\d])/giu, (match, raw: string, suffixRaw: string) => {
     const form = ORDINAL_SUFFIXES[suffixRaw.toLowerCase()];
     const value = Number(raw);
     if (!form || !Number.isFinite(value) || value < 1 || value > 999) return match;
     return inflectOrdinal(ordinal(value), form);
-  });
+  }, steps, 'ordinal');
 }
 
 /** «50/50» → «п'ятдесят на п'ятдесят». */
-function expandRatios(text: string): string {
-  return text.replace(/(?<![\d.,/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d.,/])/gu, (match, a: string, b: string) => {
+function expandRatios(text: string, steps?: NormalizationTraceStep[]): string {
+  return replaceWithTrace(text, /(?<![\d.,/])(\d{1,3})\s*\/\s*(\d{1,3})(?![\d.,/])/gu, (match, a: string, b: string) => {
     const left = Number(a);
     const right = Number(b);
     if (!Number.isFinite(left) || !Number.isFinite(right)) return match;
     return `${cardinal(left)} на ${cardinal(right)}`;
-  });
+  }, steps, 'ratio');
 }
 
-function expandDates(text: string): string {
+function expandDates(text: string, steps?: NormalizationTraceStep[]): string {
   const dotted = /(\d{1,2})\.(\d{1,2})\.(\d{4})/gu;
   const withMonthName = new RegExp(
     `(\\d{1,2})\\s+(${Object.keys(MONTHS_GENITIVE).join('|')})(?:\\s+(\\d{4})(?:\\s+(?:року|р\\.))?)?`,
@@ -422,16 +508,16 @@ function expandDates(text: string): string {
   );
   const dayWord = (day: number) => inflectOrdinal(ordinal(day), 'gen');
 
-  const afterDotted = text.replace(dotted, (match, day: string, month: string, year: string) => {
+  const afterDotted = replaceWithTrace(text, dotted, (match, day: string, month: string, year: string) => {
     const monthIndex = Number(month) - 1;
     const monthWord = MONTHS_BY_NUMBER[monthIndex];
     if (monthWord === undefined || Number(day) < 1 || Number(day) > new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate())
       return match;
     const yearWord = yearWords(Number(year), 'року');
     return `${dayWord(Number(day))} ${monthWord}${yearWord ? ` ${yearWord}` : ''}`;
-  });
+  }, steps, 'date');
 
-  return afterDotted.replace(withMonthName, (match, day: string, month: string, year?: string) => {
+  return replaceWithTrace(afterDotted, withMonthName, (match, day: string, month: string, year?: string) => {
     if (!year && (Number(day) < 1 || Number(day) > 31)) return match;
     if (
       year &&
@@ -441,75 +527,77 @@ function expandDates(text: string): string {
       return match;
     const yearWord = year ? yearWords(Number(year), 'року') : null;
     return `${dayWord(Number(day))} ${month.toLowerCase()}${yearWord ? ` ${yearWord}` : ''}`;
-  });
+  }, steps, 'date');
 }
 
-function expandAcronyms(text: string): string {
+function expandAcronyms(text: string, steps?: NormalizationTraceStep[]): string {
   const keys = Object.keys(ACRONYMS).sort((a, b) => b.length - a.length);
   const re = new RegExp(`(?<![\\p{L}])(${keys.join('|')})(?![\\p{L}])`, 'gu');
-  return text.replace(re, (word) => ACRONYMS[word] ?? word);
+  return replaceWithTrace(text, re, (word) => ACRONYMS[word] ?? word, steps, 'acronym');
 }
 
-function expandAbbreviations(text: string): string {
+function expandAbbreviations(text: string, steps?: NormalizationTraceStep[]): string {
   let out = text;
   for (const [pattern, replacement] of ABBREVIATIONS) {
-    out = out.replace(pattern, replacement);
+    out = replaceWithTrace(out, pattern, () => replacement, steps, 'abbreviation');
   }
   return out;
 }
 
-function cleanPunctuation(text: string): string {
+function cleanPunctuation(text: string, steps?: NormalizationTraceStep[]): string {
   let out = text;
-  out = out.replace(/[—–]/gu, ', ');
-  out = out.replace(/\s*[:;]\s*/gu, ', ');
-  out = out.replace(/…|\.{3,}/gu, '.');
-  out = out.replace(/[«»"„“”()[\]]/gu, '');
-  out = out.replace(/,\s*,+/gu, ', ');
-  out = out.replace(/\s+([,.!?])/gu, '$1');
-  out = out.replace(/([,.!?])(?=[^\s,.!?])/gu, '$1 ');
-  out = out.replace(/\s+/gu, ' ');
-  out = out.replace(/^[\s,]+/u, '');
-  out = out.replace(/,\s*([.!?])/gu, '$1');
-  return out.trim();
+  out = replaceWithTrace(out, /[—–]/gu, () => ', ', steps, 'punctuation');
+  out = replaceWithTrace(out, /\s*[:;]\s*/gu, () => ', ', steps, 'punctuation');
+  out = replaceWithTrace(out, /…|\.{3,}/gu, () => '.', steps, 'punctuation');
+  out = replaceWithTrace(out, /[«»"„“”()[\]]/gu, () => '', steps, 'punctuation');
+  out = replaceWithTrace(out, /,\s*,+/gu, () => ', ', steps, 'punctuation');
+  out = replaceWithTrace(out, /\s+([,.!?])/gu, (_match, punctuation: string) => punctuation, steps, 'punctuation');
+  out = replaceWithTrace(out, /([,.!?])(?=[^\s,.!?])/gu, (match) => `${match} `, steps, 'punctuation');
+  out = replaceWithTrace(out, /\s+/gu, () => ' ', steps, 'punctuation');
+  out = replaceWithTrace(out, /^[\s,]+/u, () => '', steps, 'punctuation');
+  out = replaceWithTrace(out, /,\s*([.!?])/gu, (_match, punctuation: string) => punctuation, steps, 'punctuation');
+  out = replaceWithTrace(out, /^\s+|\s+$/gu, () => '', steps, 'punctuation');
+  return out;
 }
 
 /**
  * Головна функція: готує текст до синтезу.
  * Порядок важливий — від найдовших конструкцій до окремих чисел.
  */
-function normalizeInternal(input: string, options: NormalizeOptions, traceRules: true): NormalizeTraceResult;
-function normalizeInternal(input: string, options: NormalizeOptions, traceRules: false): string;
+function normalizeInternal(input: string, options: NormalizeOptions, steps: NormalizationTraceStep[]): NormalizeTraceResult;
+function normalizeInternal(input: string, options: NormalizeOptions, steps?: undefined): string;
 function normalizeInternal(
   input: string,
   options: NormalizeOptions,
-  traceRules: boolean,
+  steps?: NormalizationTraceStep[],
 ): string | NormalizeTraceResult {
   const { abbreviations = true, acronyms = true, punctuation = true } = options;
 
-  const source = input.normalize('NFC').replace(/[\u00a0\u202f]/gu, ' ').replace(/[’ʼ`´]/gu, "'");
-  const protectedInput = protectSpeechAtoms(source, options.rules, traceRules);
+  let source = input.normalize('NFC');
+  addTraceStep(steps, 'unicode', input, source);
+  source = replaceWithTrace(source, /[\u00a0\u202f]/gu, () => ' ', steps, 'unicode');
+  source = replaceWithTrace(source, /[’ʼ`´]/gu, () => "'", steps, 'unicode');
+  const protectedInput = protectSpeechAtoms(source, options.rules, steps);
   let text = protectedInput.text;
-  text = text.replace(/[\u00a0\u202f]/gu, ' ');
-  text = text.replace(/[’ʼ`´]/gu, "'");
-  text = joinDigitGroups(text);
+  text = joinDigitGroups(text, steps);
 
-  text = expandOrdinalDates(text);
-  text = expandOrdinalSuffixes(text);
-  text = expandDates(text);
-  text = expandRatios(text);
-  text = expandYearRanges(text);
-  text = expandRanges(text);
-  text = expandYears(text);
-  text = expandRomanCenturies(text);
-  text = expandPercent(text);
-  text = expandScaledCurrency(text);
-  text = expandUnits(text);
+  text = expandOrdinalDates(text, steps);
+  text = expandOrdinalSuffixes(text, steps);
+  text = expandDates(text, steps);
+  text = expandRatios(text, steps);
+  text = expandYearRanges(text, steps);
+  text = expandRanges(text, steps);
+  text = expandYears(text, steps);
+  text = expandRomanCenturies(text, steps);
+  text = expandPercent(text, steps);
+  text = expandScaledCurrency(text, steps);
+  text = expandUnits(text, steps);
 
-  if (abbreviations) text = expandAbbreviations(text);
-  if (acronyms) text = expandAcronyms(text);
+  if (abbreviations) text = expandAbbreviations(text, steps);
+  if (acronyms) text = expandAcronyms(text, steps);
 
-  text = text.replace(/(\d+)\s*№|№\s*(\d+)/gu, (_m, a?: string, b?: string) => `номер ${a ?? b}`);
-  text = text.replace(/(\d+(?:[.,]\d+)?)/gu, (match, ...rest: unknown[]) => {
+  text = replaceWithTrace(text, /(\d+)\s*№|№\s*(\d+)/gu, (_m, a?: string, b?: string) => `номер ${a ?? b}`, steps, 'identifier');
+  text = replaceWithTrace(text, /(\d+(?:[.,]\d+)?)/gu, (match, ...rest: unknown[]) => {
     const offset = rest[rest.length - 2] as number;
     const whole = rest[rest.length - 1] as string;
     const before = whole[offset - 1] ?? '';
@@ -521,19 +609,19 @@ function normalizeInternal(
       return [...match.replace(/\D/gu, '')].map((digit) => DIGITS_WORDS[Number(digit)]!).join(' ');
     }
     return readNumber(match);
-  });
+  }, steps, 'number');
 
-  if (punctuation) text = cleanPunctuation(text);
+  if (punctuation) text = cleanPunctuation(text, steps);
   const normalized = protectedInput.restore(text);
-  if (!traceRules) return normalized;
-  return Object.freeze({ text: normalized, ruleApplications: protectedInput.ruleApplications! });
+  if (!steps) return normalized;
+  return Object.freeze({ text: normalized, ruleApplications: protectedInput.ruleApplications!, steps: Object.freeze(steps) });
 }
 
 export function normalize(input: string, options: NormalizeOptions = {}): string {
-  return normalizeInternal(input, options, false);
+  return normalizeInternal(input, options);
 }
 
-/** Normalize text and report which configured literal rules fired. */
+/** Normalize text and report each changed fragment, stage, and configured rule source. */
 export function normalizeWithTrace(input: string, options: NormalizeOptions = {}): NormalizeTraceResult {
-  return normalizeInternal(input, options, true);
+  return normalizeInternal(input, options, []);
 }

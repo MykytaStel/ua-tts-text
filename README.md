@@ -253,11 +253,12 @@ node scripts/cli.mjs --engine tts-uk --strict --json < script.txt
 ```
 
 `--normalization <path>` явно вибирає TSV із проєктними правилами й перекриває
-`UA_TTS_NORMALIZATION`. З `--explain --json` поле `normalizationTrace` містить
-нормалізований текст, fingerprint таблиці та кожне спрацювання: фактичний збіг,
-налаштовану фразу, читання й джерело. `--explain` без `--json` друкує ці спрацювання
-у stderr. Трасування показує лише літеральні правила з таблиці, не вбудовані числові
-та пунктуаційні перетворення.
+`UA_TTS_NORMALIZATION`. `--explain --json` додає до `normalizationTrace` fingerprint
+правил і `steps` — кожне фактичне перетворення нормалізатора в порядку виконання.
+Крок має стадію, змінений фрагмент до й після та коротке пояснення; для перевіреного
+проєктного правила також указується `source`. `--explain` без `--json` виводить ті
+самі кроки у stderr. Текст у `before` і `after` є вмістом фрагментів, тож передавай
+детальну трасу в журнали лише якщо це дозволяє політика даних проєкту.
 
 `--strict` додає `strictGate` у JSON та завершує CLI з кодом `1`, якщо лишилися
 lint-проблеми, невирішені омоніми/невідомі слова або відсутній/неповний словник.
@@ -420,14 +421,19 @@ on the regression corpus is not an independent held-out or listening assessment.
 
 `prepare()` завантажує правила зі спільним знімком ресурсів; змінений TSV змінює fingerprint і може скинути кеш синтезу. Пояснення конкретного збігу доступне через `resources.normalization.explain('АТБ')`. Для прямого виклику можна передати `normalize(text, { rules })`.
 
-Щоб побачити всі застосовані проєктні правила за один виклик, скористайся `normalizeWithTrace()`:
+Щоб побачити всі перетворення нормалізатора за один виклик, скористайся `normalizeWithTrace()`:
 
 ```ts
-const { text, ruleApplications } = normalizeWithTrace(input, { rules: resources.normalization });
-// Кожне входження окремо: matched, налаштоване match, replacement і source.
+const { text, ruleApplications, steps } = normalizeWithTrace(input, { rules: resources.normalization });
+// step: { stage, before, after, explanation, source? }
+// ruleApplications лишається сумісним зі структурою 0.18.0.
 ```
 
-Ця траса охоплює літеральні правила з TSV; вона не перелічує вбудовані перетворення чисел, дат і пунктуації.
+`steps` фіксує Unicode-уніфікацію, проєктні правила, числа й групи цифр, порядкові
+числівники, дати, відсотки, валюти, одиниці, скорочення, абревіатури, ідентифікатори
+та пунктуацію. `before`/`after` — саме змінені фрагменти, без позицій у початковому
+тексті. `text` дорівнює результату `normalize()` з тими самими параметрами; якщо
+стадія нічого не змінює, крок для неї не додається.
 
 ## Оцінювання
 
