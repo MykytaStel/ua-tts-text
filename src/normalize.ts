@@ -373,7 +373,7 @@ const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
   ['мг', { forms: ['міліграм', 'міліграми', 'міліграмів'], gender: 'm', genitiveSingular: 'міліграма' }],
   ['га', { forms: ['гектар', 'гектари', 'гектарів'], gender: 'm', genitiveSingular: 'гектара' }],
   ['грн.', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f', genitiveSingular: 'гривні' }],
-  ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
+  ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f', genitiveSingular: 'гривні' }],
   ['°C', { forms: ['градус', 'градуси', 'градусів'], gender: 'm', genitiveSingular: 'градуса' }],
   ['°', { forms: ['градус', 'градуси', 'градусів'], gender: 'm', genitiveSingular: 'градуса' }],
   ['шт.', { forms: ['штука', 'штуки', 'штук'], gender: 'f', genitiveSingular: 'штуки' }],
@@ -613,6 +613,81 @@ function readNumber(raw: string, gender: Gender = 'm'): string {
   return cardinal(Number(raw), gender);
 }
 
+/** Genitive numerals ending in one take a singular noun, except for 11–19. */
+function genitiveNounForm(value: number, singular: string, plural: string): string {
+  return value % 10 === 1 && value % 100 !== 11 ? singular : plural;
+}
+
+const GENITIVE_FRACTION_SCALES: Readonly<Record<number, readonly [string, string]>> = {
+  1: ['десятої', 'десятих'],
+  2: ['сотої', 'сотих'],
+  3: ['тисячної', 'тисячних'],
+  4: ['десятитисячної', 'десятитисячних'],
+  5: ['стотисячної', 'стотисячних'],
+  6: ['мільйонної', 'мільйонних'],
+};
+
+/** Inflect both parts of a decimal numeral in the genitive case. */
+function genitiveDecimalWords(raw: string): string | null {
+  const match = /^(\d+)[.,](\d+)$/u.exec(raw);
+  if (!match) return null;
+  const whole = Number(match[1]);
+  const fractionDigits = match[2]!;
+  const scale = GENITIVE_FRACTION_SCALES[fractionDigits.length];
+  if (!Number.isSafeInteger(whole) || whole > 999_999 || !scale) return null;
+
+  const wholeWords = genitiveCardinal(whole, 'f');
+  const phrase = `${wholeWords} ${genitiveNounForm(whole, 'цілої', 'цілих')}`;
+  const fraction = Number(fractionDigits);
+  if (fraction === 0) return phrase;
+  return `${phrase} ${genitiveCardinal(fraction, 'f')} ${genitiveNounForm(fraction, scale[0], scale[1])}`;
+}
+
+/** Speak a fractional UAH amount as hryvnias and kopecks, matching its two-decimal currency scale. */
+function hryvniaAmountWords(raw: string, genitive = false): string | null {
+  const match = /^([−-]?)(\d+)[.,](\d{1,2})$/u.exec(raw);
+  if (!match) return null;
+  const [, sign, majorRaw, minorRaw] = match;
+  const major = Number(majorRaw);
+  if (!Number.isSafeInteger(major) || major > 999_999_999_999 || (genitive && major > 999_999)) return null;
+
+  const minor = Number(minorRaw!.padEnd(2, '0'));
+  const majorWords = genitive ? genitiveCardinal(major, 'f') : cardinal(major, 'f');
+  const majorNoun = genitive
+    ? genitiveNounForm(major, 'гривні', 'гривень')
+    : pluralForm(major, ['гривня', 'гривні', 'гривень']);
+  const minorWords = genitive ? genitiveCardinal(minor, 'f') : cardinal(minor, 'f');
+  const minorNoun = genitive
+    ? genitiveNounForm(minor, 'копійки', 'копійок')
+    : pluralForm(minor, ['копійка', 'копійки', 'копійок']);
+  const amount = `${majorWords} ${majorNoun}${minor > 0 ? ` ${minorWords} ${minorNoun}` : ''}`;
+  return `${sign ? 'мінус ' : ''}${amount}`;
+}
+
+/** Speak fractional USD/EUR values as major currency plus cents. */
+function foreignCurrencyAmountWords(raw: string, symbol: '$' | '€', genitive = false): string | null {
+  const match = /^([−-]?)(\d+)[.,](\d{1,2})$/u.exec(raw);
+  if (!match) return null;
+  const [, sign, majorRaw, minorRaw] = match;
+  const major = Number(majorRaw);
+  if (!Number.isSafeInteger(major) || major > 999_999_999_999 || (genitive && major > 999_999)) return null;
+
+  const minor = Number(minorRaw!.padEnd(2, '0'));
+  const majorGender: Gender = symbol === '€' ? 'n' : 'm';
+  const majorWords = genitive ? genitiveCardinal(major, majorGender) : cardinal(major, majorGender);
+  const majorNoun = symbol === '€'
+    ? 'євро'
+    : genitive
+      ? genitiveNounForm(major, 'долара', 'доларів')
+      : pluralForm(major, ['долар', 'долари', 'доларів']);
+  const minorWords = genitive ? genitiveCardinal(minor, 'm') : cardinal(minor, 'm');
+  const minorNoun = genitive
+    ? genitiveNounForm(minor, 'цента', 'центів')
+    : pluralForm(minor, ['цент', 'центи', 'центів']);
+  const amount = `${majorWords} ${majorNoun}${minor > 0 ? ` ${minorWords} ${minorNoun}` : ''}`;
+  return `${sign ? 'мінус ' : ''}${amount}`;
+}
+
 const CURRENCIES: ReadonlyArray<readonly [string, { forms: readonly [string, string, string]; gender: Gender } | null]> = [
   ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
   ['доларів', { forms: ['долар', 'долари', 'доларів'], gender: 'm' }],
@@ -622,13 +697,23 @@ const CURRENCIES: ReadonlyArray<readonly [string, { forms: readonly [string, str
 
 function expandSymbolCurrency(text: string, steps?: NormalizationTraceStep[]): string {
   return replaceWithTrace(text, /(\$|€|₴)\s*(\d+(?:[.,]\d+)?)(?![\p{L}\d])|(?<![\p{L}\d])(\d+(?:[.,]\d+)?)\s*(\$|€|₴)/gu,
-    (match, leading?: string, leadingNumber?: string, trailingNumber?: string, trailing?: string) => {
+    (match, leading: string | undefined, leadingNumber: string | undefined, trailingNumber: string | undefined, trailing: string | undefined, offset: number, whole: string) => {
       const symbol = leading ?? trailing;
       const raw = leadingNumber ?? trailingNumber;
       if (!symbol || !raw) return match;
       const value = parseNumeric(raw);
       if (value === null) return match;
-      const words = readNumber(raw, symbol === '₴' ? 'f' : 'm');
+      if (symbol === '₴') {
+        const before = whole.slice(Math.max(0, offset - 24), offset);
+        const amount = hryvniaAmountWords(raw, /(?:до|від)\s*$/iu.test(before));
+        if (amount) return amount;
+      } else if (symbol === '$' || symbol === '€') {
+        const before = whole.slice(Math.max(0, offset - 24), offset);
+        const amount = foreignCurrencyAmountWords(raw, symbol, /(?:до|від)\s*$/iu.test(before));
+        if (amount) return amount;
+      }
+      const gender: Gender = symbol === '₴' ? 'f' : symbol === '€' ? 'n' : 'm';
+      const words = readNumber(raw, gender);
       const unit = symbol === '$'
         ? pluralForm(value, ['долар', 'долари', 'доларів'])
         : symbol === '₴'
@@ -651,7 +736,7 @@ function expandScaledCurrency(text: string, steps?: NormalizationTraceStep[]): s
     if (Math.abs(total - Math.round(total)) > 1e-6) return match;
     const currency = CURRENCIES.find(([c]) => c === currencyRaw.replace(/\.$/u, ''));
     if (!currency) return match;
-    const words = cardinal(Math.round(total), currency[1]?.gender ?? 'm');
+    const words = cardinal(Math.round(total), currency[1]?.gender ?? 'n');
     if (!currency[1]) return `${words} євро`;
     return `${words} ${pluralForm(Math.round(total), currency[1].forms)}`;
   }, steps, 'currency');
@@ -670,12 +755,16 @@ function expandUnits(text: string, steps?: NormalizationTraceStep[]): string {
     const prefix = whole.slice(Math.max(0, offset - 24), offset);
     const trailingAbbreviationPeriod = unitRaw.endsWith('.') && whole.slice(offset + match.length).trim().length === 0 ? '.' : '';
     const genitiveContext = /(?:до|від)\s*$/iu.test(prefix);
+    const base = unit[0].replace(/\.$/u, '');
+    if (base === 'грн' && /[.,]/u.test(rawNumber)) {
+      const amount = hryvniaAmountWords(rawNumber, genitiveContext);
+      if (amount) return `${amount}${trailingAbbreviationPeriod}`;
+    }
     const genitive = def.genitiveSingular ?? def.forms[2];
     if (genitiveContext && Number.isInteger(value)) {
-      return `${genitiveCardinal(value, def.gender)} ${value === 1 ? genitive : def.forms[2]}${trailingAbbreviationPeriod}`;
+      return `${genitiveCardinal(value, def.gender)} ${genitiveNounForm(value, genitive, def.forms[2])}${trailingAbbreviationPeriod}`;
     }
 
-    const base = unit[0].replace(/\.$/u, '');
     if (SCALE_UNITS.has(base)) {
       const factor = base === 'млрд' ? 1_000_000_000 : base === 'млн' ? 1_000_000 : 1_000;
       const scaled = value * factor;
@@ -685,7 +774,9 @@ function expandUnits(text: string, steps?: NormalizationTraceStep[]): string {
     }
 
     if (!Number.isInteger(value)) {
-      return `${readNumber(rawNumber, def.gender)} ${genitive}${trailingAbbreviationPeriod}`;
+      const numberWords = genitiveContext ? genitiveDecimalWords(rawNumber) : readNumber(rawNumber, def.gender);
+      if (!numberWords) return match;
+      return `${numberWords} ${genitive}${trailingAbbreviationPeriod}`;
     }
     return `${cardinal(value, def.gender)} ${pluralForm(value, def.forms)}${trailingAbbreviationPeriod}`;
   }, steps, 'unit');
@@ -695,8 +786,15 @@ function expandPercent(text: string, steps?: NormalizationTraceStep[]): string {
   return replaceWithTrace(text, /(\d+(?:[.,]\d+)?)\s*%/gu, (_m, raw: string) => {
     const value = parseNumeric(raw);
     if (value === null) return _m;
-    const words = readNumber(raw, 'm');
-    return `${words} ${pluralForm(value, ['відсоток', 'відсотки', 'відсотків'])}`;
+    const forms = ['відсоток', 'відсотки', 'відсотків'] as const;
+    const decimal = /^(\d+)[.,](\d+)$/u.exec(raw);
+    if (decimal) {
+      const integer = Number(decimal[1]);
+      const fraction = decimal[2] ?? '';
+      if (Number(fraction) === 0) return `${cardinal(integer)} ${pluralForm(integer, forms)}`;
+      return `${readNumber(raw, 'm')} відсотка`;
+    }
+    return `${cardinal(value)} ${pluralForm(value, forms)}`;
   }, steps, 'percent');
 }
 
@@ -758,8 +856,9 @@ function expandRanges(text: string, steps?: NormalizationTraceStep[]): string {
     const head = `від ${genitiveCardinal(from, gender)} до ${genitiveCardinal(to, gender)}`;
     if (!unitRaw) return head;
     if (!unit) return `${head} ${unitRaw}`;
-    // Після «від … до …» іменник стоїть у родовому множини: «до семи кілометрів».
-    return `${head} ${to === 1 ? (unit[1].genitiveSingular ?? unit[1].forms[2]) : unit[1].forms[2]}${trailingAbbreviationPeriod}`;
+    // The final numeral controls noun number: «до двадцяти одного кілометра».
+    const noun = genitiveNounForm(to, unit[1].genitiveSingular ?? unit[1].forms[2], unit[1].forms[2]);
+    return `${head} ${noun}${trailingAbbreviationPeriod}`;
   }, steps, 'range');
 }
 

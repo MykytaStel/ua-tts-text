@@ -29,8 +29,10 @@
 | Проєктні правила читання | ✅ `NormalizationRules` і локальний `normalization.tsv` у `0.17.0` |
 | Відображення нормалізованого фрагмента на конкретне входження у джерелі | ✅ `normalizeWithAlignment()` з UTF-16 позиціями у `0.21.0` |
 | Збережені виправлення одного входження | ✅ `NormalizationCorrectionSet` із fingerprint перевіркою у `0.21.0` |
+| Типізований review-процес неоднозначностей для API, CLI та Studio | ✅ `createNormalizationReview()` / `applyNormalizationReview()` у `0.25.0` |
+| CLI-перегляд неоднозначних чисел, дат і часу з безпечним повторним застосуванням | ✅ `--normalization-review-out` / `--apply-normalization-review` у `0.25.0` |
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
-| Реліз | вихідний код `0.21.0`; npm `latest` — `0.20.0` (2026-11-15) |
+| Реліз | вихідний код `0.25.0`; npm `latest` — `0.21.0` (2026-11-16) |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
@@ -253,6 +255,8 @@ node scripts/cli.mjs --engine tts-uk --decisions corpus/decisions.json < script.
 node scripts/cli.mjs --engine piper-high --json < script.txt
 node scripts/cli.mjs --engine piper-medium --normalization project/normalization.tsv --explain --json < script.txt
 node scripts/cli.mjs --engine tts-uk --strict --json < script.txt
+node scripts/cli.mjs --normalization-review-out review-normalization.json < script.txt
+node scripts/cli.mjs --apply-normalization-review review-normalization.json < script.txt
 ```
 
 `--normalization <path>` явно вибирає TSV із проєктними правилами й перекриває
@@ -302,6 +306,88 @@ const spans = scanSemanticSpans('О 12:30 додай 1/2 склянки; код 
 `пів склянки`, `2026-11-15` як дата. Недійсні ISO-дати, час і непідтримані дроби
 не переписуються автоматично та з'являються в `semanticFindings`. Часові зони й
 інші формати поки потребують окремих правил.
+
+Дробова сума у гривнях читається через гривні й копійки: `1,25 грн` → «одна
+гривня двадцять п'ять копійок», `1,5 ₴` → «одна гривня п'ятдесят копійок».
+Одну цифру після роздільника доповнюємо нулем до двох знаків копійок; нуль копійок
+пропускається. Після `до` та `від` числівники й назви одиниць читаються в родовому:
+`до 1,05 грн` → «до однієї гривні п'яти копійок».
+Дробові суми в доларах і євро читаються аналогічно через центи: `$1.50` → «один
+долар п'ятдесят центів», `€1,5` → «одне євро п'ятдесят центів». У родовому
+відмінку форма назви валюти узгоджується з кінцевим числівником: `до 21,21 грн`
+→ «до двадцяти однієї гривні двадцяти однієї копійки».
+Так само узгоджується родова форма одиниць і кінцева назва в діапазоні:
+`до 21 км` → «до двадцяти одного кілометра», `20–21 км` → «від двадцяти до
+двадцяти одного кілометра». У дробових вимірах після `до` відмінюються обидві
+частини: `до 1,5 кг` → «до однієї цілої п'яти десятих кілограма».
+Дробові відсотки також узгоджуються в родовому однини: `2,5%` → «дві цілі
+п'ять десятих відсотка». Запис `1,0%` скорочується до «один відсоток». Числівник
+перед «євро» узгоджується із середнім родом: `€1` → «одне євро».
+Пробіл між розрядами не перетворює групу `000` на код: `1 000 грн` читається як
+«тисяча гривень», тоді як окремий `000123` залишається кодом із промовлянням цифр.
+
+### Людський перегляд неоднозначних числових фрагментів (0.25.0)
+
+`--normalization-review-out` експортує недійсні або неоднозначні дати, часи й інші
+числові записи у JSON. Заповни `replacement` для тих входжень, яким потрібне явне
+читання; залиш `null`, щоб фрагмент і далі вимагав перевірки. Потім застосуй файл:
+
+```bash
+ua-tts-text --normalization-review-out normalization-review.json < script.txt
+# у потрібних occurrence замінити null на точну вимову
+ua-tts-text --apply-normalization-review normalization-review.json < script.txt > prepared.txt
+```
+
+Кожне входження має речення-контекст і власні UTF-16 позиції в джерелі й нормалізованому тексті.
+Fingerprint прив'язаний до точного вводу, базового результату й параметрів нормалізації;
+застарілий файл після зміни тексту чи правил відхиляється. `--explain` показує
+застосоване прочитання як `manual-correction`. Файл містить фрагменти початкового
+тексту, тож зберігай його за політикою даних свого проєкту.
+
+Цей самий review-формат доступний із пакета: `createNormalizationReview(input, options)`
+створює файл, а `applyNormalizationReview(input, review, options)` перевіряє його й
+повертає `NormalizationCorrectionSet` для `prepare()`. Це дає Studio ті самі правила
+позицій і застарівання, що й CLI.
+
+```ts
+import { applyNormalizationReview, createNormalizationReview, loadResources, prepare } from 'ua-tts-text';
+
+const input = 'Дата 31.02.2026, час 25:99.';
+const resources = loadResources();
+const review = createNormalizationReview(input, { rules: resources.normalization });
+const editedReview = {
+  ...review,
+  occurrences: review.occurrences.map((item) => ({
+    ...item,
+    replacement: item.sourceText === '31.02.2026' ? 'тридцять першого лютого' : null,
+  })),
+};
+const { corrections } = applyNormalizationReview(input, editedReview, { rules: resources.normalization });
+const prepared = prepare(input, { resources, normalizationCorrections: corrections });
+```
+
+```json
+{
+  "format": "ua-tts-text-normalization-review",
+  "version": 1,
+  "fingerprint": "…",
+  "occurrences": [
+    {
+      "id": "5:15",
+      "kind": "ambiguous",
+      "sourceStart": 5,
+      "sourceEnd": 15,
+      "sourceText": "31.02.2026",
+      "spokenStart": 5,
+      "spokenEnd": 15,
+      "normalizedText": "31.02.2026",
+      "reason": "Некоректна дата у форматі ДД.ММ.РРРР.",
+      "context": "Дата 31.02.2026, далі.",
+      "replacement": "тридцять першого лютого"
+    }
+  ]
+}
+```
 
 ### Ручний перегляд омонімів і невідомих слів (CLI у 0.15.0)
 

@@ -2,7 +2,12 @@
 year-988	988 року.	дев'ятсот вісімдесят восьмого року.	year
 quantity-years	За 4 роки.	За чотири роки.	year
 unit-genitive	До 5 км.	До п'яти кілометрів.	unit
+unit-genitive-compound	До 21 км.	До двадцяти одного кілометра.	unit
+range-genitive-compound-one	20–21 км.	від двадцяти до двадцяти одного кілометра.	range
+range-genitive-compound-many	21–22 км.	від двадцяти одного до двадцяти двох кілометрів.	range
 fraction-unit	1,5 кг.	одна ціла п'ять десятих кілограма.	unit
+fraction-unit-genitive	До 1,5 кг.	До однієї цілої п'яти десятих кілограма.	unit
+fraction-unit-genitive-single-hundredth	До 2,01 л.	До двох цілих однієї сотої літра.	unit
 range-singular	0–1 м.	від нуля до одного метра.	range
 valid-date	12.11.2026.	дванадцятого листопада дві тисячі двадцять шостого року.	date
 invalid-date	31.02.2026.	31.02.2026.	date
@@ -12,3 +17,21 @@ email	Лист на test@example.org.	Лист на test@example.org.	identifier
 url	Сайт https://example.org/page.	Сайт https://example.org/page.	identifier
 feminine-genitive	До 1 грн.	До однієї гривні.	unit
 range-feminine	0–1 грн.	від нуля до однієї гривні.	range
+uah-currency-125	1,25 грн	одна гривня двадцять п'ять копійок	currency-uah
+uah-currency-decimal-symbol	1,5 ₴	одна гривня п'ятдесят копійок	currency-uah
+uah-currency-single-kopeck	1.01 ₴	одна гривня одна копійка	currency-uah
+uah-currency-zero-hryvnias	0,05 грн	нуль гривень п'ять копійок	currency-uah
+uah-currency-zero-kopecks	1,00 грн	одна гривня	currency-uah
+uah-currency-genitive-one	До 1,05 грн.	До однієї гривні п'яти копійок.	currency-uah
+uah-currency-genitive-many	Від 2,40 грн	Від двох гривень сорока копійок	currency-uah
+uah-currency-genitive-compound	До 21,21 грн	До двадцяти однієї гривні двадцяти однієї копійки	currency-uah
+usd-currency-150	$1.50	один долар п'ятдесят центів	currency-usd
+usd-currency-single-cent	$1.01	один долар один цент	currency-usd
+usd-currency-genitive-compound	До $21.01	До двадцяти одного долара одного цента	currency-usd
+eur-currency-150	€1,5	одне євро п'ятдесят центів	currency-eur
+eur-currency-genitive	До €1.05	До одного євро п'яти центів	currency-eur
+decimal-percent-25	2,5%	дві цілі п'ять десятих відсотка	percent
+decimal-percent-half	0,5%	нуль цілих п'ять десятих відсотка	percent
+decimal-percent-zero	1,0%	один відсоток	percent
+euro-neuter-one	Ціна €1.	Ціна одне євро.	currency
+grouped-zero-currency	1 000 грн.	тисяча гривень.	currency

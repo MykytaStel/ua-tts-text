@@ -145,7 +145,8 @@ export function scanSemanticSpans(input: string): ReadonlyArray<SemanticSpan> {
         { hour, minute },
       );
     }),
-    ...allMatches(input, /(?<![\p{L}\d])(?:[A-Za-zА-ЯІЇЄҐ]{1,8}-\d+[A-Za-zА-ЯІЇЄҐа-яіїєґ\d]*|0\d{2,})(?![\p{L}\d])/gu, (match) =>
+    // A zero-prefixed group after a digit and whitespace may be part of a grouped quantity (1 000), not an identifier.
+    ...allMatches(input, /(?<![\p{L}\d])(?:[A-Za-zА-ЯІЇЄҐ]{1,8}-\d+[A-Za-zА-ЯІЇЄҐа-яіїєґ\d]*|(?<!\d\s)0\d{2,})(?![\p{L}\d])/gu, (match) =>
       candidate(
         input,
         match,
