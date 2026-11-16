@@ -12,3 +12,10 @@ email	Лист на test@example.org.	Лист на test@example.org.	identifier
 url	Сайт https://example.org/page.	Сайт https://example.org/page.	identifier
 feminine-genitive	До 1 грн.	До однієї гривні.	unit
 range-feminine	0–1 грн.	від нуля до однієї гривні.	range
+uah-currency-125	1,25 грн	одна гривня двадцять п'ять копійок	currency-uah
+uah-currency-decimal-symbol	1,5 ₴	одна гривня п'ятдесят копійок	currency-uah
+uah-currency-single-kopeck	1.01 ₴	одна гривня одна копійка	currency-uah
+uah-currency-zero-hryvnias	0,05 грн	нуль гривень п'ять копійок	currency-uah
+uah-currency-zero-kopecks	1,00 грн	одна гривня	currency-uah
+uah-currency-genitive-one	До 1,05 грн.	До однієї гривні п'яти копійок.	currency-uah
+uah-currency-genitive-many	Від 2,40 грн	Від двох гривень сорока копійок	currency-uah
