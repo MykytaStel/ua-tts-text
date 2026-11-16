@@ -162,9 +162,10 @@ export class NormalizationRules {
   applyWithTrace(
     input: string,
     protect: (replacement: string) => string = (replacement) => replacement,
+    onApplication?: (application: NormalizationRuleApplication, start: number, end: number) => void,
   ): NormalizationRuleApplyResult {
     const applications: NormalizationRuleApplication[] = [];
-    const text = this.#apply(input, protect, applications);
+    const text = this.#apply(input, protect, applications, onApplication);
     return Object.freeze({ text, applications: Object.freeze(applications) });
   }
 
@@ -172,15 +173,21 @@ export class NormalizationRules {
     input: string,
     protect: (replacement: string) => string,
     applications?: NormalizationRuleApplication[],
+    onApplication?: (application: NormalizationRuleApplication, start: number, end: number) => void,
   ): string {
     this.#compile();
     if (!this.#matcher) return input;
-    return input.replace(this.#matcher, (matched) => {
+    return input.replace(this.#matcher, (matched, _capture: string, start: number) => {
       const entry = this.#entries.get(keyOf(matched));
       if (entry?.status !== 'verified') return matched;
-      applications?.push(
-        Object.freeze({ matched, match: entry.match, replacement: entry.replacement, source: entry.source }),
-      );
+      const application = Object.freeze({
+        matched,
+        match: entry.match,
+        replacement: entry.replacement,
+        source: entry.source,
+      });
+      applications?.push(application);
+      onApplication?.(application, start, start + matched.length);
       return protect(entry.replacement);
     });
   }
