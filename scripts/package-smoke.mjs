@@ -244,6 +244,44 @@ try {
   const invalidChoice = runReviewCli(['--apply-review', reviewFile], reviewInput);
   if (invalidChoice.status === 0 || !invalidChoice.stderr.includes('must be 0, 1, or null'))
     throw new Error(`CLI accepted an invalid review choice: ${invalidChoice.stdout}${invalidChoice.stderr}`);
+
+  const normalizationReviewFile = path.join(temp, 'normalization-review.json');
+  const normalizationReviewInput = 'Дата 31.02.2026, час 25:99.';
+  const runNormalizationReviewCli = (args, input = normalizationReviewInput) =>
+    spawnSync(
+      process.execPath,
+      [path.join(installed, 'scripts/cli.mjs'), '--engine', 'plain', '--json', ...args],
+      { cwd: temp, encoding: 'utf8', input },
+    );
+  const normalizationExport = runNormalizationReviewCli(['--normalization-review-out', normalizationReviewFile]);
+  if (normalizationExport.status !== 0) throw new Error(normalizationExport.stderr || 'normalization review export failed');
+  const normalizationReview = JSON.parse(readFileSync(normalizationReviewFile, 'utf8'));
+  if (
+    normalizationReview.format !== 'ua-tts-text-normalization-review' ||
+    normalizationReview.version !== 1 ||
+    normalizationReview.occurrences.map((item) => item.sourceText).join(',') !== '31.02.2026,25:99' ||
+    normalizationReview.occurrences[0].context !== normalizationReviewInput
+  )
+    throw new Error(`normalization review export returned unexpected data: ${JSON.stringify(normalizationReview)}`);
+  normalizationReview.occurrences[0].replacement = 'тридцять першого лютого';
+  writeFileSync(normalizationReviewFile, `${JSON.stringify(normalizationReview, null, 2)}\n`);
+  const normalizationApplied = runNormalizationReviewCli([
+    '--apply-normalization-review', normalizationReviewFile, '--explain',
+  ]);
+  if (
+    normalizationApplied.status !== 0 ||
+    !JSON.parse(normalizationApplied.stdout).text.includes('тридцять першого лютого') ||
+    JSON.parse(normalizationApplied.stdout).normalizationCorrectionsApplied !== 1 ||
+    !JSON.parse(normalizationApplied.stdout).semanticFindings?.some((finding) => finding.raw === '25:99') ||
+    !JSON.parse(normalizationApplied.stdout).normalizationTrace?.steps?.some((step) => step.stage === 'manual-correction')
+  )
+    throw new Error(normalizationApplied.stderr || `normalization review apply failed: ${normalizationApplied.stdout}`);
+  const staleNormalizationReview = runNormalizationReviewCli(
+    ['--apply-normalization-review', normalizationReviewFile],
+    'Дата 30.02.2026, час 25:99.',
+  );
+  if (staleNormalizationReview.status === 0 || !staleNormalizationReview.stderr.includes('file is stale'))
+    throw new Error(`CLI accepted a normalization review for changed text: ${staleNormalizationReview.stdout}${staleNormalizationReview.stderr}`);
   console.log(`packed install smoke passed (${packed.filename}, ${packed.size} bytes)`);
 } finally {
   rmSync(temp, { recursive: true, force: true });

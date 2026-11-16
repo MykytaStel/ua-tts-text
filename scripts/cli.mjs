@@ -11,8 +11,11 @@ import {
   loadResources,
   createOpenAiAsker,
   checkPrepared,
+  applyNormalizationReview,
+  createNormalizationReview,
   lint,
   normalize,
+  normalizeWithAlignment,
   normalizeWithTrace,
   prepare,
   prepareMany,
@@ -117,6 +120,8 @@ function positionalInput() {
     'decisions',
     'review-out',
     'apply-review',
+    'normalization-review-out',
+    'apply-normalization-review',
     'max-prompt-chars',
     'resolution-failure',
   ]);
@@ -139,15 +144,22 @@ const decisionsArg = arg('decisions', '');
 const decisions = decisionsArg ? JSON.parse(readFileSync(path.resolve(decisionsArg), 'utf8')) : {};
 const reviewOutArg = arg('review-out', '');
 const applyReviewArg = arg('apply-review', '');
+const normalizationReviewOutArg = arg('normalization-review-out', '');
+const applyNormalizationReviewArg = arg('apply-normalization-review', '');
 if (process.argv.includes('--review-out') && (!reviewOutArg || reviewOutArg.startsWith('--')))
   throw new Error('--review-out requires a file path');
 if (process.argv.includes('--apply-review') && (!applyReviewArg || applyReviewArg.startsWith('--')))
   throw new Error('--apply-review requires a file path');
+if (process.argv.includes('--normalization-review-out') && (!normalizationReviewOutArg || normalizationReviewOutArg.startsWith('--')))
+  throw new Error('--normalization-review-out requires a file path');
+if (process.argv.includes('--apply-normalization-review') && (!applyNormalizationReviewArg || applyNormalizationReviewArg.startsWith('--')))
+  throw new Error('--apply-normalization-review requires a file path');
 const normalizationArg = arg('normalization', '');
 if (process.argv.includes('--normalization') && (!normalizationArg || normalizationArg.startsWith('--')))
   throw new Error('--normalization requires a file path');
-if (reviewOutArg && applyReviewArg) throw new Error('use only one of --review-out or --apply-review');
-if ((reviewOutArg || applyReviewArg) && decisionsArg)
+const reviewActions = [reviewOutArg, applyReviewArg, normalizationReviewOutArg, applyNormalizationReviewArg].filter(Boolean);
+if (reviewActions.length > 1) throw new Error('choose only one review action');
+if (reviewActions.length > 0 && decisionsArg)
   throw new Error('--decisions cannot be combined with occurrence review; use choices in the review file');
 
 let input = '';
@@ -159,7 +171,7 @@ if (process.stdin.isTTY) {
 
 if (!input.trim()) {
   console.error(
-    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--normalization path] [--decisions file | --review-out file | --apply-review file] [--resolve] [--explain] [--strict] [--json] < script.txt',
+    'usage: ua-tts-text --engine <id> [--dict path] [--lexicon path] [--normalization path] [--decisions file | --review-out file | --apply-review file | --normalization-review-out file | --apply-normalization-review file] [--resolve] [--explain] [--strict] [--json] < script.txt',
   );
   process.exit(2);
 }
@@ -171,7 +183,7 @@ const resources = loadResources({
 });
 const disableContext = process.argv.includes('--no-context');
 const useResolve = process.argv.includes('--resolve') || process.env['UA_TTS_RESOLVE'] === '1';
-if ((reviewOutArg || applyReviewArg) && useResolve) throw new Error('occurrence review cannot be combined with --resolve');
+if (reviewActions.length > 0 && useResolve) throw new Error('occurrence review cannot be combined with --resolve');
 const apiKey = process.env['UA_TTS_LLM_KEY'] ?? '';
 if (useResolve && !apiKey) {
   console.error('--resolve потребує UA_TTS_LLM_KEY (OpenAI-сумісний ключ)');
@@ -192,7 +204,7 @@ const base = {
   ...(disableContext ? { context: null } : {}),
   stress: {
     decisions,
-    trace: explainMode || Boolean(reviewOutArg || applyReviewArg),
+    trace: explainMode || reviewActions.length > 0,
     ...(strictMode ? { minReportLength: 1 } : {}),
   },
 };
@@ -200,7 +212,34 @@ const base = {
 let batch;
 let reviewSummary;
 let result;
-if (applyReviewArg) {
+let appliedNormalizationCorrections;
+if (normalizationReviewOutArg) {
+  const artifact = createNormalizationReview(input.trim(), { rules: resources.normalization });
+  const file = path.resolve(normalizationReviewOutArg);
+  writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`);
+  result = prepare(input.trim(), base);
+  reviewSummary = {
+    mode: 'normalization-exported',
+    file,
+    occurrences: artifact.occurrences.length,
+    fingerprint: artifact.fingerprint,
+  };
+} else if (applyNormalizationReviewArg) {
+  const review = JSON.parse(readFileSync(path.resolve(applyNormalizationReviewArg), 'utf8'));
+  const applied = applyNormalizationReview(input.trim(), review, { rules: resources.normalization });
+  appliedNormalizationCorrections = applied.corrections;
+  result = prepare(input.trim(), {
+    ...base,
+    ...(applied.corrections ? { normalizationCorrections: applied.corrections } : {}),
+  });
+  reviewSummary = {
+    mode: 'normalization-applied',
+    file: path.resolve(applyNormalizationReviewArg),
+    appliedCorrections: applied.applied,
+    unresolvedOccurrences: applied.unresolved,
+    fingerprint: applied.fingerprint,
+  };
+} else if (applyReviewArg) {
   const preview = await prepareMany([input.trim()], base);
   const reviewChoices = readReview(applyReviewArg, {
     engine,
@@ -263,6 +302,10 @@ if (applyReviewArg) {
 if (ask && batch) console.error(`резолвер: ${result.homographs.length} омонімів у запиті`);
 if (reviewSummary?.mode === 'exported')
   console.error(`файл перегляду: ${reviewSummary.file} · входжень: ${reviewSummary.occurrences}`);
+if (reviewSummary?.mode === 'normalization-exported')
+  console.error(`файл перегляду нормалізації: ${reviewSummary.file} · фрагментів: ${reviewSummary.occurrences}`);
+if (reviewSummary?.mode === 'normalization-applied')
+  console.error(`застосовано виправлень нормалізації: ${reviewSummary.appliedCorrections} · лишилося на перевірку: ${reviewSummary.unresolvedOccurrences}`);
 if (reviewSummary?.mode === 'applied')
   console.error(
     `застосовано рішень: омонімів ${reviewSummary.appliedHomographs}, невідомих слів ${reviewSummary.appliedUnknownWords} · лишилось нерозв'язаними: омонімів ${reviewSummary.unresolvedHomographs}, невідомих слів ${reviewSummary.unresolvedUnknownWords}`,
@@ -271,8 +314,20 @@ const strictGate = strictMode ? checkPrepared(result) : undefined;
 const issues = strictGate
   ? strictGate.findings.flatMap((finding) => (finding.kind === 'lint' ? [finding.issue] : []))
   : lint(result.text);
-const normalizationTrace = explainMode
-  ? normalizeWithTrace(input.trim(), { rules: resources.normalization })
+const traceResult = explainMode
+  ? appliedNormalizationCorrections
+    ? normalizeWithAlignment(input.trim(), {
+        rules: resources.normalization,
+        corrections: appliedNormalizationCorrections,
+      })
+    : normalizeWithTrace(input.trim(), { rules: resources.normalization })
+  : undefined;
+const normalizationTrace = traceResult
+  ? {
+      text: traceResult.text,
+      ruleApplications: traceResult.ruleApplications,
+      steps: traceResult.steps,
+    }
   : undefined;
 
 if (asJson) {

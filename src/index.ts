@@ -25,6 +25,7 @@ export * from './dict.js';
 export * from './lexicon.js';
 export * from './numbers.js';
 export * from './normalize.js';
+export * from './normalization-review.js';
 export * from './normalization-rules.js';
 export * from './render.js';
 export * from './review.js';
