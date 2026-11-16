@@ -15,6 +15,11 @@ describe('semantic spans', () => {
     expect(spans[4]?.value).toMatchObject({ digits: '000123', leadingZeros: true });
   });
 
+  it('keeps grouped thousands out of the leading-zero identifier scanner', () => {
+    const spans = scanSemanticSpans('1 000 грн і 12 000 ₴');
+    expect(spans.filter((span) => span.kind === 'identifier')).toEqual([]);
+  });
+
   it('maps typed trace steps back to the original string', () => {
     const input = 'é́ дата 2026-11-15';
     const trace = normalizeWithTrace(input);

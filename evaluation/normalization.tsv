@@ -22,3 +22,5 @@ uah-currency-genitive-many	Від 2,40 грн	Від двох гривень с�
 decimal-percent-25	2,5%	дві цілі п'ять десятих відсотка	percent
 decimal-percent-half	0,5%	нуль цілих п'ять десятих відсотка	percent
 decimal-percent-zero	1,0%	один відсоток	percent
+euro-neuter-one	Ціна €1.	Ціна одне євро.	currency
+grouped-zero-currency	1 000 грн.	тисяча гривень.	currency

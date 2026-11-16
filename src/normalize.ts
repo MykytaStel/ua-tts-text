@@ -654,7 +654,8 @@ function expandSymbolCurrency(text: string, steps?: NormalizationTraceStep[]): s
         const amount = hryvniaAmountWords(raw, /(?:до|від)\s*$/iu.test(before));
         if (amount) return amount;
       }
-      const words = readNumber(raw, symbol === '₴' ? 'f' : 'm');
+      const gender: Gender = symbol === '₴' ? 'f' : symbol === '€' ? 'n' : 'm';
+      const words = readNumber(raw, gender);
       const unit = symbol === '$'
         ? pluralForm(value, ['долар', 'долари', 'доларів'])
         : symbol === '₴'
@@ -677,7 +678,7 @@ function expandScaledCurrency(text: string, steps?: NormalizationTraceStep[]): s
     if (Math.abs(total - Math.round(total)) > 1e-6) return match;
     const currency = CURRENCIES.find(([c]) => c === currencyRaw.replace(/\.$/u, ''));
     if (!currency) return match;
-    const words = cardinal(Math.round(total), currency[1]?.gender ?? 'm');
+    const words = cardinal(Math.round(total), currency[1]?.gender ?? 'n');
     if (!currency[1]) return `${words} євро`;
     return `${words} ${pluralForm(Math.round(total), currency[1].forms)}`;
   }, steps, 'currency');
