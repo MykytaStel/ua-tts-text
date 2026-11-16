@@ -618,6 +618,31 @@ function genitiveNounForm(value: number, singular: string, plural: string): stri
   return value % 10 === 1 && value % 100 !== 11 ? singular : plural;
 }
 
+const GENITIVE_FRACTION_SCALES: Readonly<Record<number, readonly [string, string]>> = {
+  1: ['десятої', 'десятих'],
+  2: ['сотої', 'сотих'],
+  3: ['тисячної', 'тисячних'],
+  4: ['десятитисячної', 'десятитисячних'],
+  5: ['стотисячної', 'стотисячних'],
+  6: ['мільйонної', 'мільйонних'],
+};
+
+/** Inflect both parts of a decimal numeral in the genitive case. */
+function genitiveDecimalWords(raw: string): string | null {
+  const match = /^(\d+)[.,](\d+)$/u.exec(raw);
+  if (!match) return null;
+  const whole = Number(match[1]);
+  const fractionDigits = match[2]!;
+  const scale = GENITIVE_FRACTION_SCALES[fractionDigits.length];
+  if (!Number.isSafeInteger(whole) || whole > 999_999 || !scale) return null;
+
+  const wholeWords = genitiveCardinal(whole, 'f');
+  const phrase = `${wholeWords} ${genitiveNounForm(whole, 'цілої', 'цілих')}`;
+  const fraction = Number(fractionDigits);
+  if (fraction === 0) return phrase;
+  return `${phrase} ${genitiveCardinal(fraction, 'f')} ${genitiveNounForm(fraction, scale[0], scale[1])}`;
+}
+
 /** Speak a fractional UAH amount as hryvnias and kopecks, matching its two-decimal currency scale. */
 function hryvniaAmountWords(raw: string, genitive = false): string | null {
   const match = /^([−-]?)(\d+)[.,](\d{1,2})$/u.exec(raw);
@@ -749,7 +774,9 @@ function expandUnits(text: string, steps?: NormalizationTraceStep[]): string {
     }
 
     if (!Number.isInteger(value)) {
-      return `${readNumber(rawNumber, def.gender)} ${genitive}${trailingAbbreviationPeriod}`;
+      const numberWords = genitiveContext ? genitiveDecimalWords(rawNumber) : readNumber(rawNumber, def.gender);
+      if (!numberWords) return match;
+      return `${numberWords} ${genitive}${trailingAbbreviationPeriod}`;
     }
     return `${cardinal(value, def.gender)} ${pluralForm(value, def.forms)}${trailingAbbreviationPeriod}`;
   }, steps, 'unit');

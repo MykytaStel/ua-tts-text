@@ -6,6 +6,8 @@ unit-genitive-compound	До 21 км.	До двадцяти одного кіло
 range-genitive-compound-one	20–21 км.	від двадцяти до двадцяти одного кілометра.	range
 range-genitive-compound-many	21–22 км.	від двадцяти одного до двадцяти двох кілометрів.	range
 fraction-unit	1,5 кг.	одна ціла п'ять десятих кілограма.	unit
+fraction-unit-genitive	До 1,5 кг.	До однієї цілої п'яти десятих кілограма.	unit
+fraction-unit-genitive-single-hundredth	До 2,01 л.	До двох цілих однієї сотої літра.	unit
 range-singular	0–1 м.	від нуля до одного метра.	range
 valid-date	12.11.2026.	дванадцятого листопада дві тисячі двадцять шостого року.	date
 invalid-date	31.02.2026.	31.02.2026.	date
