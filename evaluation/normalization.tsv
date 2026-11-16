@@ -19,3 +19,6 @@ uah-currency-zero-hryvnias	0,05 грн	нуль гривень п'ять коп�
 uah-currency-zero-kopecks	1,00 грн	одна гривня	currency-uah
 uah-currency-genitive-one	До 1,05 грн.	До однієї гривні п'яти копійок.	currency-uah
 uah-currency-genitive-many	Від 2,40 грн	Від двох гривень сорока копійок	currency-uah
+decimal-percent-25	2,5%	дві цілі п'ять десятих відсотка	percent
+decimal-percent-half	0,5%	нуль цілих п'ять десятих відсотка	percent
+decimal-percent-zero	1,0%	один відсоток	percent

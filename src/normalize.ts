@@ -725,8 +725,15 @@ function expandPercent(text: string, steps?: NormalizationTraceStep[]): string {
   return replaceWithTrace(text, /(\d+(?:[.,]\d+)?)\s*%/gu, (_m, raw: string) => {
     const value = parseNumeric(raw);
     if (value === null) return _m;
-    const words = readNumber(raw, 'm');
-    return `${words} ${pluralForm(value, ['відсоток', 'відсотки', 'відсотків'])}`;
+    const forms = ['відсоток', 'відсотки', 'відсотків'] as const;
+    const decimal = /^(\d+)[.,](\d+)$/u.exec(raw);
+    if (decimal) {
+      const integer = Number(decimal[1]);
+      const fraction = decimal[2] ?? '';
+      if (Number(fraction) === 0) return `${cardinal(integer)} ${pluralForm(integer, forms)}`;
+      return `${readNumber(raw, 'm')} відсотка`;
+    }
+    return `${cardinal(value)} ${pluralForm(value, forms)}`;
   }, steps, 'percent');
 }
 
