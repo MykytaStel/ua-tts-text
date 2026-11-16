@@ -2,6 +2,9 @@
 year-988	988 року.	дев'ятсот вісімдесят восьмого року.	year
 quantity-years	За 4 роки.	За чотири роки.	year
 unit-genitive	До 5 км.	До п'яти кілометрів.	unit
+unit-genitive-compound	До 21 км.	До двадцяти одного кілометра.	unit
+range-genitive-compound-one	20–21 км.	від двадцяти до двадцяти одного кілометра.	range
+range-genitive-compound-many	21–22 км.	від двадцяти одного до двадцяти двох кілометрів.	range
 fraction-unit	1,5 кг.	одна ціла п'ять десятих кілограма.	unit
 range-singular	0–1 м.	від нуля до одного метра.	range
 valid-date	12.11.2026.	дванадцятого листопада дві тисячі двадцять шостого року.	date

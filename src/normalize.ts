@@ -373,7 +373,7 @@ const UNITS: ReadonlyArray<readonly [string, UnitDef]> = [
   ['мг', { forms: ['міліграм', 'міліграми', 'міліграмів'], gender: 'm', genitiveSingular: 'міліграма' }],
   ['га', { forms: ['гектар', 'гектари', 'гектарів'], gender: 'm', genitiveSingular: 'гектара' }],
   ['грн.', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f', genitiveSingular: 'гривні' }],
-  ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f' }],
+  ['грн', { forms: ['гривня', 'гривні', 'гривень'], gender: 'f', genitiveSingular: 'гривні' }],
   ['°C', { forms: ['градус', 'градуси', 'градусів'], gender: 'm', genitiveSingular: 'градуса' }],
   ['°', { forms: ['градус', 'градуси', 'градусів'], gender: 'm', genitiveSingular: 'градуса' }],
   ['шт.', { forms: ['штука', 'штуки', 'штук'], gender: 'f', genitiveSingular: 'штуки' }],
@@ -737,7 +737,7 @@ function expandUnits(text: string, steps?: NormalizationTraceStep[]): string {
     }
     const genitive = def.genitiveSingular ?? def.forms[2];
     if (genitiveContext && Number.isInteger(value)) {
-      return `${genitiveCardinal(value, def.gender)} ${value === 1 ? genitive : def.forms[2]}${trailingAbbreviationPeriod}`;
+      return `${genitiveCardinal(value, def.gender)} ${genitiveNounForm(value, genitive, def.forms[2])}${trailingAbbreviationPeriod}`;
     }
 
     if (SCALE_UNITS.has(base)) {
@@ -829,8 +829,9 @@ function expandRanges(text: string, steps?: NormalizationTraceStep[]): string {
     const head = `від ${genitiveCardinal(from, gender)} до ${genitiveCardinal(to, gender)}`;
     if (!unitRaw) return head;
     if (!unit) return `${head} ${unitRaw}`;
-    // Після «від … до …» іменник стоїть у родовому множини: «до семи кілометрів».
-    return `${head} ${to === 1 ? (unit[1].genitiveSingular ?? unit[1].forms[2]) : unit[1].forms[2]}${trailingAbbreviationPeriod}`;
+    // The final numeral controls noun number: «до двадцяти одного кілометра».
+    const noun = genitiveNounForm(to, unit[1].genitiveSingular ?? unit[1].forms[2], unit[1].forms[2]);
+    return `${head} ${noun}${trailingAbbreviationPeriod}`;
   }, steps, 'range');
 }
 
