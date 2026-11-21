@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import type { ContextSource } from './context.js';
 import { StressDictionary } from './dict.js';
 import type { StressSource } from './lexicon.js';
+import { planSpeech, renderPlan, type PlanOptions, type SpeechPlan } from './plan.js';
 import {
   normalize,
   normalizeWithAlignment,
@@ -62,6 +63,8 @@ export interface PrepareResult {
   ambiguous: string[];
   ambiguousOccurrences: Array<{ word: string; offset: number }>;
   unknown: string[];
+  /** Кожне невідоме слово окремо; UTF-16 offsets point to normalized text before stress markup. */
+  unknownOccurrences: Array<{ word: string; offset: number }>;
   /** Омоніми з двома прочитаннями — те, що має вирішити людина або LLM. */
   homographs: Homograph[];
   marked: number;
@@ -91,6 +94,25 @@ export interface PreparedCheckResult {
   readonly findings: ReadonlyArray<PreparedFinding>;
 }
 
+export interface PrepareSpeechOptions extends PrepareOptions {
+  /** Optional pacing overrides for the handoff plan. */
+  plan?: PlanOptions;
+}
+
+/** One consistent handoff from Ukrainian text preparation to a TTS adapter. */
+export interface PrepareSpeechResult {
+  /** The engine-specific normalized and stress-marked text. */
+  readonly text: string;
+  /** Full preparation result, including unresolved words and warnings. */
+  readonly prepared: PrepareResult;
+  /** Phrase boundaries and pauses, planned after normalization and stress markup. */
+  readonly plan: SpeechPlan;
+  /** SSML rendering of the plan; use only with engines that support SSML. */
+  readonly ssml: string;
+  /** Readiness findings that should be reviewed before synthesis. */
+  readonly readiness: PreparedCheckResult;
+}
+
 /** Shared readiness gate for CLI, Studio, and other synthesis integrations. */
 export function checkPrepared(
   result: Pick<PrepareResult, 'text' | 'ambiguousOccurrences' | 'unknown' | 'warnings' | 'semanticFindings'>,
@@ -107,6 +129,26 @@ export function checkPrepared(
       .map((warning) => Object.freeze({ kind: 'resource' as const, warning })),
   ];
   return Object.freeze({ passed: findings.length === 0, findings: Object.freeze(findings) });
+}
+
+/**
+ * Prepare text and its delivery plan together so every voice receives the same
+ * normalization and stress decisions. The plan is a deterministic handoff,
+ * not a claim that the package models a voice's natural intonation.
+ */
+export function prepareSpeech(input: string, options: PrepareSpeechOptions = {}): PrepareSpeechResult {
+  return speechHandoff(prepare(input, options), options.plan);
+}
+
+function speechHandoff(prepared: PrepareResult, options: PlanOptions | undefined): PrepareSpeechResult {
+  const plan = planSpeech(prepared.text, options);
+  return Object.freeze({
+    text: prepared.text,
+    prepared,
+    plan,
+    ssml: renderPlan(plan, 'ssml'),
+    readiness: checkPrepared(prepared),
+  });
 }
 
 export interface PrepareManyOptions extends PrepareOptions {
@@ -137,6 +179,16 @@ export interface PrepareManyResult {
   promptLength: number;
   /** SHA-256 of normalized inputs, engine and, when supplied, the resource snapshot. */
   decisionFingerprint: string;
+}
+
+export interface PrepareSpeechManyOptions extends PrepareManyOptions {
+  /** Optional pacing overrides shared by all paragraphs. */
+  plan?: PlanOptions;
+}
+
+export interface PrepareSpeechManyResult extends Omit<PrepareManyResult, 'results'> {
+  /** Engine-ready text, speech plan, SSML and readiness findings per paragraph. */
+  paragraphs: PrepareSpeechResult[];
 }
 
 function normalizeOptions(options: Pick<PrepareOptions, 'normalize' | 'resources'>): NormalizeOptions | undefined {
@@ -289,6 +341,20 @@ export async function prepareMany(inputs: readonly string[], options: PrepareMan
   return { results, decisions, overrides, missing, warnings, promptLength, decisionFingerprint };
 }
 
+/** Batch preparation plus one speech plan per paragraph, preserving one shared LLM resolution. */
+export async function prepareSpeechMany(
+  inputs: readonly string[],
+  options: PrepareSpeechManyOptions = {},
+): Promise<PrepareSpeechManyResult> {
+  const { plan, ...prepareOptions } = options;
+  const batch = await prepareMany(inputs, prepareOptions);
+  const { results, ...metadata } = batch;
+  return {
+    ...metadata,
+    paragraphs: results.map((prepared) => speechHandoff(prepared, plan)),
+  };
+}
+
 /** Правила, що мовчать для слів із явним рішенням — так само, як у `stressify`. */
 function withoutDecided(context: ContextSource, decided: Readonly<Record<string, 0 | 1>>): ContextSource {
   return { resolve: (word, view) => (decided[word] === undefined ? context.resolve(word, view) : null) };
@@ -341,6 +407,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
       ambiguous: [],
       ambiguousOccurrences: [],
       unknown: [],
+      unknownOccurrences: [],
       homographs: [],
       marked: 0,
       inferred: 0,
@@ -376,6 +443,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
     ambiguous: result.ambiguous,
     ambiguousOccurrences: result.ambiguousOccurrences,
     unknown: result.unknown,
+    unknownOccurrences: result.unknownOccurrences,
     // Явне рішення сильніше за правило, тож слово з рішенням лишається у списку для звіту.
     homographs: homographs(
       normalized,

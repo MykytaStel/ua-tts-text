@@ -13,10 +13,9 @@
 - [x] GitHub: https://github.com/MykytaStel/ua-tts-text (публічний, топіки додано)
 - [x] CI: тести зі словником і без нього
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
-- [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.17.0` за перевіркою 2026-11-15)
-- [x] Git tag `v0.16.0` створений і `0.16.0` опублікований
-- [x] Git tag `v0.17.0` створений, `0.17.0` опублікований
-- [ ] `0.18.0` у роботі в гілці `feat/normalization-rule-trace`; tag і npm-публікація ще не готові
+- [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.25.0`, перевірено 2026-11-21)
+- [x] Вихідний код `0.25.0` злитий у `main` у PR #10
+- [ ] `0.26.0` — локальний кандидат із `prepareSpeech()` / `prepareSpeechMany()` та `unknownOccurrences`; потрібні повний CI, merge, Git tag і npm-публікація
 
 ## Крок 1. GitHub (зроблено)
 
