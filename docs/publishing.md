@@ -15,7 +15,8 @@
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
 - [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.25.0`, перевірено 2026-11-21)
 - [x] Вихідний код `0.25.0` злитий у `main` у PR #10
-- [ ] `0.26.0` — локальний кандидат із `prepareSpeech()` / `prepareSpeechMany()` та `unknownOccurrences`; потрібні повний CI, merge, Git tag і npm-публікація
+- [x] `0.26.0` — кандидат із `prepareSpeech()` / `prepareSpeechMany()` та `unknownOccurrences`; локальний release gate пройшов, GitHub Actions CI успішний у [draft PR #11](https://github.com/MykytaStel/ua-tts-text/pull/11)
+- [ ] Злити PR #11, створити Git tag `v0.26.0`, опублікувати npm-пакет і перевірити `latest` та встановлення з реєстру
 
 ## Крок 1. GitHub (зроблено)
 
