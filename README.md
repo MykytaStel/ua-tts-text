@@ -31,8 +31,10 @@
 | Збережені виправлення одного входження | ✅ `NormalizationCorrectionSet` із fingerprint перевіркою у `0.21.0` |
 | Типізований review-процес неоднозначностей для API, CLI та Studio | ✅ `createNormalizationReview()` / `applyNormalizationReview()` у `0.25.0` |
 | CLI-перегляд неоднозначних чисел, дат і часу з безпечним повторним застосуванням | ✅ `--normalization-review-out` / `--apply-normalization-review` у `0.25.0` |
+| Спільний handoff «підготовка + план мовлення» для одного або багатьох абзаців | 🧪 кандидат `0.26.0`: `prepareSpeech()` / `prepareSpeechMany()` |
+| Позиції кожного невідомого слова для engine-specific fallback | 🧪 кандидат `0.26.0`: `unknownOccurrences` |
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
-| Реліз | вихідний код `0.25.0`; npm `latest` — `0.21.0` (2026-11-16) |
+| Реліз | npm `latest` — `0.25.0` (перевірено 2026-11-21); локальний кандидат — `0.26.0` |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
@@ -158,6 +160,32 @@ renderPlan(plan, 'ssml'); // <speak>Раз,<break time="220ms"/> два.<break t
 Свідоме обмеження: це детермінована розмітка, а не модель інтонації. Природну
 інтонацію дає лише тренована акустика; план керує тим, що реально передається
 рушіям — паузами й межами фраз.
+
+### Єдиний handoff до синтезатора
+
+`prepareSpeech()` об'єднує нормалізацію, наголоси, план фраз і перевірку
+невирішених місць; `prepareSpeechMany()` робить те саме для пакета абзаців і
+зберігає спільне одноразове вирішення омонімів через LLM. Передавайте однаковий
+`text` різним голосам. Так правила читання не залежать від приватного профілю;
+`plan.segments` дає адаптеру паузи, а `ssml` використовуйте лише для рушіїв із
+підтримкою SSML.
+
+```ts
+const handoff = await prepareSpeechMany(paragraphs, { engine: 'holos-voice', resources, ask });
+const voiceInputs = handoff.paragraphs.map(({ text, plan, ssml, readiness, prepared }) => ({
+  text, // однаковий engine-ready текст для кожного голосу
+  segments: plan.segments, // межі фраз і pauseAfterMs для адаптера
+  ssml, // опційно, лише для рушія з підтримкою SSML
+  review: readiness.findings, // перевірити перед синтезом
+  unknownOccurrences: prepared.unknownOccurrences, // позиції до маркерів наголосу
+  ambiguousOccurrences: prepared.ambiguousOccurrences, // не вгадувати мовчки
+}));
+// Адаптуйте wordsPerMinute окремо для кожного голосу після вимірювання аудіо.
+```
+
+План не передбачає, що всі голоси мають однаковий темп чи однаково підтримують
+SSML. Сам по собі він не доводить природність аудіо: її перевіряють на відкладених
+текстах і реальному прослуховуванні.
 
 ## Контекстні правила
 

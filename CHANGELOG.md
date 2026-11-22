@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.26.0 — кандидат (2026-11-21)
+
+- Додано `prepareSpeech()` і `prepareSpeechMany()` як спільний handoff: engine-specific текст, фразовий план із паузами, SSML-рендер і readiness findings зібрані разом, а пакетна версія зберігає одноразове LLM-вирішення омонімів.
+- `stressify()` і `prepare()` повертають `unknownOccurrences` з позицією кожного невідомого слова до вставлення маркерів наголосу, зберігаючи старий унікальний список `unknown`.
+
 ## 0.25.0 — 2026-11-16
 
 - `createNormalizationReview()` і `applyNormalizationReview()` відкривають fingerprint-захищений review-процес у публічному API; ті самі функції використовує CLI та можуть викликати Studio.

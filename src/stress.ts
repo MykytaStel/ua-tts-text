@@ -84,6 +84,8 @@ export interface StressResult {
   ambiguousOccurrences: Array<{ word: string; offset: number }>;
   /** Слів немає у словнику — їх має перевірити людина або LLM. */
   unknown: string[];
+  /** Кожне невідоме слово окремо; offsets are UTF-16 indexes before stress markup. */
+  unknownOccurrences: Array<{ word: string; offset: number }>;
   /** Скільки слів отримали наголос. */
   marked: number;
   /** Скільки з них — за морфологічним фолбеком, а не зі словника. */
@@ -144,6 +146,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
   const ambiguous = new Set<string>();
   const ambiguousOccurrences: Array<{ word: string; offset: number }> = [];
   const unknown = new Set<string>();
+  const unknownOccurrences: Array<{ word: string; offset: number }> = [];
   let marked = 0;
   let inferred = 0;
   let contextual = 0;
@@ -310,6 +313,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
       // Односкладові слова словник часто не маркує — це не проблема, а шум у звіті.
       if (needsStress(normalized) && normalized.length >= minReportLength) {
         unknown.add(word);
+        unknownOccurrences.push({ word, offset });
         record(word, offset, 'unknown');
       }
       return word;
@@ -374,6 +378,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
       ambiguous: [...ambiguous],
       ambiguousOccurrences,
       unknown: [...unknown],
+      unknownOccurrences,
       marked: 0,
       inferred: 0,
       contextual: 0,
@@ -385,6 +390,7 @@ export function stressify(text: string, dictionary: StressDictionary, options: S
     ambiguous: [...ambiguous],
     ambiguousOccurrences,
     unknown: [...unknown],
+    unknownOccurrences,
     marked,
     inferred,
     contextual,
