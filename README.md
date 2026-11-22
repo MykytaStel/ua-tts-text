@@ -31,10 +31,11 @@
 | Збережені виправлення одного входження | ✅ `NormalizationCorrectionSet` із fingerprint перевіркою у `0.21.0` |
 | Типізований review-процес неоднозначностей для API, CLI та Studio | ✅ `createNormalizationReview()` / `applyNormalizationReview()` у `0.25.0` |
 | CLI-перегляд неоднозначних чисел, дат і часу з безпечним повторним застосуванням | ✅ `--normalization-review-out` / `--apply-normalization-review` у `0.25.0` |
-| Спільний handoff «підготовка + план мовлення» для одного або багатьох абзаців | 🧪 кандидат `0.26.0`: `prepareSpeech()` / `prepareSpeechMany()` |
-| Позиції кожного невідомого слова для engine-specific fallback | 🧪 кандидат `0.26.0`: `unknownOccurrences` |
+| Спільний handoff «підготовка + план мовлення» для одного або багатьох абзаців | ✅ `prepareSpeech()` / `prepareSpeechMany()` у `0.30.0` |
+| Позиції невідомих слів і зіставлення нормалізованого тексту з джерелом | ✅ `unknownOccurrences` / `normalizationAlignment` у `0.30.0` |
+| PLS-словник із явними IPA-вимовами для ElevenLabs v4 | ✅ `createIpaPls()` у `0.30.0`; IPA не генерується автоматично |
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
-| Реліз | npm `latest` — `0.25.0` (перевірено 2026-11-21); локальний кандидат — `0.26.0` |
+| Реліз | npm `latest` — `0.25.0` (перевірено 2026-11-21); кандидат — `0.30.0` |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
@@ -168,14 +169,18 @@ renderPlan(plan, 'ssml'); // <speak>Раз,<break time="220ms"/> два.<break t
 зберігає спільне одноразове вирішення омонімів через LLM. Передавайте однаковий
 `text` різним голосам. Так правила читання не залежать від приватного профілю;
 `plan.segments` дає адаптеру паузи, а `ssml` використовуйте лише для рушіїв із
-підтримкою SSML.
+підтримкою SSML. `normalizationAlignment` відображає нормалізовані фрагменти
+на UTF-16 позиції оригіналу; ці діапазони стосуються тексту до маркерів наголосу.
+Для `elevenlabs-v4` поле `ssml` відсутнє, а `ssmlUnavailableReason` пояснює
+обмеження: ця модель не приймає SSML-паузи, тому передавайте текст із пунктуацією та `plan`.
 
 ```ts
 const handoff = await prepareSpeechMany(paragraphs, { engine: 'holos-voice', resources, ask });
-const voiceInputs = handoff.paragraphs.map(({ text, plan, ssml, readiness, prepared }) => ({
+const voiceInputs = handoff.paragraphs.map(({ text, plan, ssml, readiness, prepared, normalizationAlignment }) => ({
   text, // однаковий engine-ready текст для кожного голосу
   segments: plan.segments, // межі фраз і pauseAfterMs для адаптера
-  ssml, // опційно, лише для рушія з підтримкою SSML
+  ssml, // відсутній для elevenlabs-v4 та інших відомо несумісних рушіїв
+  sourceMap: normalizationAlignment,
   review: readiness.findings, // перевірити перед синтезом
   unknownOccurrences: prepared.unknownOccurrences, // позиції до маркерів наголосу
   ambiguousOccurrences: prepared.ambiguousOccurrences, // не вгадувати мовчки
@@ -214,8 +219,22 @@ SSML. Сам по собі він не доводить природність �
 | `styletts2` | `+` після складу | за документацією |
 | `piper-medium` | акут U+0301 | ✅ `phoneme_type: text`, акут — окремий токен |
 | `piper-high` | поки немає адаптера | графічний наголос тут не перевірений; актуальний Piper CLI документує raw espeak-ng phoneme input, але конкретна українська версія/голос ще потребує аудіоперевірки |
-| `elevenlabs-v4` | IPA | ⏳ профіль у роботі (для неанглійської IPA лише на v4/v4_turbo) |
+| `elevenlabs-v4` | IPA через PLS | `createIpaPls()` серіалізує явні перевірені IPA-записи; SSML break теги не підтримуються |
 | `edge-tts`, `azure` | — | наголоси не приймають; для `uk-UA` SSML IPA не заявлено |
+
+Для ElevenLabs v4 можна передати власні перевірені IPA-вимови як PLS-файл:
+
+```ts
+import { createIpaPls } from 'ua-tts-text';
+
+const pls = createIpaPls([
+  { grapheme: 'Київ', phoneme: '/ˈkɪjiu̯/' }, // перевірте вимову для свого голосу
+]);
+// Збережіть pls у файл .pls і завантажте його в pronunciation dictionary ElevenLabs.
+```
+
+PLS збігається за точним написанням і регістром. Функція перевіряє XML та
+дублікати написань, але не перевіряє фонетичну правильність транскрипції.
 
 ## Baseline на golden corpus
 

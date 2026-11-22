@@ -65,7 +65,7 @@ const result = prepare(text, { dictionary, lexicon, engine: 'tts-uk' });
 | `styletts2` | `+` після складу | за документацією |
 | `piper-medium` | акут U+0301 | символьна модель `uk_UA-ukrainian_tts-medium` |
 | `piper-high` | нічого | espeak-ng ставить наголос сам; `+` він читає як «плюс» |
-| `elevenlabs-v4` | IPA (у роботі) | для неанглійської IPA лише на `eleven_v4`/`v4_turbo` |
+| `elevenlabs-v4` | IPA через PLS | створюй PLS через `createIpaPls()` лише з перевіреною IPA; `prepareSpeech()` не повертає SSML breaks для v4 |
 | `edge-tts`, `azure` | нічого | наголоси не приймають |
 
 `piper-high` — не помилка у тексті: ці голоси фонемізуються espeak-ng, який ігнорує будь-які текстові позначки наголосу. Виправляти треба вибір рушія, а не текст.
