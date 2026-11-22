@@ -86,6 +86,12 @@ export function planSpeech(text: string, options: PlanOptions = {}): SpeechPlan 
   const sentencePauseMs = options.sentencePauseMs ?? 480;
   const clausePauseMs = options.clausePauseMs ?? 220;
   const wordsPerMinute = options.wordsPerMinute ?? 125;
+  if (!Number.isFinite(wordsPerMinute) || wordsPerMinute <= 0)
+    throw new RangeError('planSpeech: wordsPerMinute must be a finite positive number');
+  if (!Number.isFinite(sentencePauseMs) || sentencePauseMs < 0)
+    throw new RangeError('planSpeech: sentencePauseMs must be a finite non-negative number');
+  if (!Number.isFinite(clausePauseMs) || clausePauseMs < 0)
+    throw new RangeError('planSpeech: clausePauseMs must be a finite non-negative number');
 
   const segments: SpeechSegment[] = [];
   const sentences = splitOutsideSemanticSpans(text, /[.!?…]+/gu);
@@ -108,6 +114,7 @@ export function planSpeech(text: string, options: PlanOptions = {}): SpeechPlan 
   // wpm виміряно на живому аудіо разом із паузами на пунктуації, тому додавати
   // pauseAfterMs ще раз не можна — буде подвійний облік.
   const speechMs = (segments.reduce((sum, segment) => sum + segment.words, 0) / wordsPerMinute) * 60_000;
+  if (!Number.isFinite(speechMs)) throw new RangeError('planSpeech: estimated duration is out of range');
   return { segments, estimatedMs: Math.round(speechMs) };
 }
 

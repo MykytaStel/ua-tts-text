@@ -180,6 +180,15 @@ try {
   )
     throw new Error(`strict CLI accepted unresolved speech: ${strictFailure.stdout}${strictFailure.stderr}`);
 
+  const strictMissing = spawnSync(
+    process.execPath,
+    [path.join(installed, 'scripts/cli.mjs'), '--engine', 'edge-tts', '--dict', path.join(temp, 'absent.bin'), '--strict', '--json'],
+    { cwd: temp, encoding: 'utf8', input: 'Так.' },
+  );
+  if (strictMissing.status !== 1 ||
+      !JSON.parse(strictMissing.stdout).strictGate?.findings.some((finding) => finding.kind === 'resource'))
+    throw new Error(`strict CLI accepted a missing dictionary: ${strictMissing.stdout}${strictMissing.stderr}`);
+
   const reviewDictionary = path.join(temp, 'review-dict.bin');
   const changedReviewDictionary = path.join(temp, 'changed-review-dict.bin');
   writeDictionaryFixture(reviewDictionary, [{ word: 'замок', position: 1, alternative: 3 }]);

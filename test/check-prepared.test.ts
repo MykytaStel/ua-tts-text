@@ -2,6 +2,12 @@ import { expect, it } from 'vitest';
 import { checkPrepared, prepare } from '../src/index.js';
 import { StressDictionary } from '../src/dict.js';
 
+it('accepts the legacy check input without an engine and still requires dictionary resources', () => {
+  const input = { text: 'Так.', ambiguousOccurrences: [], unknown: [], warnings: ['stress dictionary missing'] };
+  expect(checkPrepared(input).passed).toBe(false);
+  expect(checkPrepared({ ...input, engine: 'edge-tts' }).passed).toBe(false);
+});
+
 it('passes clean prepared speech while ignoring intentional unsupported-stress warnings', () => {
   const prepared = prepare('Так.', { dictionary: StressDictionary.empty(), engine: 'edge-tts' });
 

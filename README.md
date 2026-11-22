@@ -35,7 +35,7 @@
 | Позиції невідомих слів і зіставлення нормалізованого тексту з джерелом | ✅ `unknownOccurrences` / `normalizationAlignment` у `0.30.0` |
 | PLS-словник із явними IPA-вимовами для ElevenLabs v4 | ✅ `createIpaPls()` у `0.30.0`; IPA не генерується автоматично |
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
-| Реліз | npm `latest` — `0.25.0` (перевірено 2026-11-22); tag `v0.30.0` створено, npm публікація очікується |
+| Реліз | npm `latest` — `0.25.0` (перевірено 2026-11-22). Тег `v0.30.0` позначає збірку до виправлень аудиту |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 
 ## Встановлення
@@ -168,18 +168,19 @@ renderPlan(plan, 'ssml'); // <speak>Раз,<break time="220ms"/> два.<break t
 невирішених місць; `prepareSpeechMany()` робить те саме для пакета абзаців і
 зберігає спільне одноразове вирішення омонімів через LLM. Передавайте однаковий
 `text` різним голосам. Так правила читання не залежать від приватного профілю;
-`plan.segments` дає адаптеру паузи, а `ssml` використовуйте лише для рушіїв із
-підтримкою SSML. `normalizationAlignment` відображає нормалізовані фрагменти
-на UTF-16 позиції оригіналу; ці діапазони стосуються тексту до маркерів наголосу.
-Для `elevenlabs-v4` поле `ssml` відсутнє, а `ssmlUnavailableReason` пояснює
-обмеження: ця модель не приймає SSML-паузи, тому передавайте текст із пунктуацією та `plan`.
+`plan.segments` дає адаптеру паузи. Загальний `ssml` доступний для профілю
+`plain` або без явно вибраного рушія. Для конкретного рушія
+`ssmlUnavailableReason` пояснює, як використати план. Наприклад, Azure потребує
+власної розмітки з мовою та голосом, а ElevenLabs v4 приймає текст із пунктуацією.
+`normalizationAlignment` зіставляє фрагменти до вставлення маркерів наголосу
+з UTF-16 позиціями оригіналу. Для рушіїв без текстових наголосів
+`readiness` оцінює текст і неоднозначні числа без перевірки словника наголосів.
 
 ```ts
 const handoff = await prepareSpeechMany(paragraphs, { engine: 'holos-voice', resources, ask });
-const voiceInputs = handoff.paragraphs.map(({ text, plan, ssml, readiness, prepared, normalizationAlignment }) => ({
+const voiceInputs = handoff.paragraphs.map(({ text, plan, readiness, prepared, normalizationAlignment }) => ({
   text, // однаковий engine-ready текст для кожного голосу
   segments: plan.segments, // межі фраз і pauseAfterMs для адаптера
-  ssml, // відсутній для elevenlabs-v4 та інших відомо несумісних рушіїв
   sourceMap: normalizationAlignment,
   review: readiness.findings, // перевірити перед синтезом
   unknownOccurrences: prepared.unknownOccurrences, // позиції до маркерів наголосу

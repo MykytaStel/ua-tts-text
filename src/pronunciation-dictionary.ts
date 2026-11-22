@@ -8,7 +8,7 @@ export interface IpaPronunciationEntry {
 }
 
 export interface IpaPlsOptions {
-  /** BCP 47 language tag for the lexicon. Defaults to Ukrainian. */
+  /** Unicode locale identifier for the lexicon. Defaults to uk-UA. */
   readonly language?: string;
 }
 
@@ -46,23 +46,26 @@ export function createIpaPls(
   if (!Array.isArray(entries) || entries.length === 0)
     throw new RangeError('createIpaPls: provide at least one pronunciation entry');
 
-  const language = options.language ?? 'uk-UA';
-  if (!/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u.test(language))
-    throw new TypeError('createIpaPls: language must be a BCP 47 language tag');
-  assertXmlCharacters(language, 'language');
+  let language: string;
+  try {
+    language = new Intl.Locale(options.language ?? 'uk-UA').toString();
+  } catch {
+    throw new TypeError('createIpaPls: language must be a valid Unicode locale identifier');
+  }
 
   const seen = new Set<string>();
-  const lexemes = entries.map((entry, index) => {
+  const lexemes = Array.from(entries, (entry, index) => {
     if (!entry || typeof entry.grapheme !== 'string' || typeof entry.phoneme !== 'string')
       throw new TypeError(`createIpaPls: entry ${index + 1} must contain grapheme and phoneme strings`);
-    const grapheme = entry.grapheme.trim();
-    const phoneme = entry.phoneme.trim();
+    const { grapheme, phoneme } = entry;
     if (!grapheme || !phoneme)
       throw new TypeError(`createIpaPls: entry ${index + 1} must not be empty`);
     if (/[\r\n\t]/u.test(grapheme) || /[\r\n\t]/u.test(phoneme))
       throw new TypeError(`createIpaPls: entry ${index + 1} must be a single line`);
     assertXmlCharacters(grapheme, `entry ${index + 1} grapheme`);
     assertXmlCharacters(phoneme, `entry ${index + 1} phoneme`);
+    if (grapheme !== grapheme.trim() || phoneme !== phoneme.trim())
+      throw new TypeError(`createIpaPls: entry ${index + 1} must not have surrounding whitespace`);
     if (seen.has(grapheme)) throw new Error(`createIpaPls: duplicate grapheme "${grapheme}"`);
     seen.add(grapheme);
     return `  <lexeme>\n    <grapheme>${escapeXml(grapheme)}</grapheme>\n    <phoneme>${escapeXml(phoneme)}</phoneme>\n  </lexeme>`;
