@@ -21,11 +21,23 @@ describe('TTS handoff', () => {
   });
 
   it('keeps batch resolution metadata while returning a plan for each paragraph', async () => {
-    const batch = await prepareSpeechMany(['Раз, два.', 'Хто це?'], { engine: 'plain' });
+    const batch = await prepareSpeechMany(['У 2025 році.', 'Хто це?'], { engine: 'plain' });
 
-    expect(batch.paragraphs.map(({ text }) => text)).toEqual(['Раз, два.', 'Хто це?']);
+    expect(batch.paragraphs.map(({ text }) => text)).toEqual(["У дві тисячі двадцять п'ятому році.", 'Хто це?']);
     expect(batch.paragraphs.map(({ plan }) => plan.segments[0]?.kind)).toEqual(['statement', 'question']);
+    expect(batch.paragraphs[0]?.normalizationAlignment.some(({ sourceText, spokenText, changed }) =>
+      sourceText.includes('2025') && spokenText.length > sourceText.length && changed,
+    )).toBe(true);
     expect(batch.decisionFingerprint).toMatch(/^[a-f0-9]{64}$/u);
     expect(batch.promptLength).toBe(0);
+  });
+
+  it('withholds unsupported SSML for ElevenLabs v4 and reports the limitation', () => {
+    const prepared = prepareSpeech('Привіт. Як справи?', { engine: 'elevenlabs-v4' });
+
+    expect(prepared.ssml).toBeUndefined();
+    expect(prepared.ssmlUnavailableReason).toMatch(/break tags are unsupported/u);
+    expect(prepared.readiness.passed).toBe(true);
+    expect(prepared.plan.segments).toHaveLength(2);
   });
 });

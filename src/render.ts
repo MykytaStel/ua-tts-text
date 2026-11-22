@@ -25,6 +25,8 @@ export type EngineId =
 export interface EngineProfile {
   readonly symbol: StressSymbol;
   readonly supportsStress: boolean;
+  /** Explicitly false only for engines known to reject SSML break tags. */
+  readonly ssmlBreaks?: boolean;
   readonly note: string;
 }
 
@@ -61,7 +63,8 @@ export const ENGINES: Readonly<Record<EngineId, EngineProfile>> = {
   'elevenlabs-v4': {
     symbol: 'none',
     supportsStress: false,
-    note: 'Для неанглійської приймає IPA лише на eleven_v4 / v4_turbo; IPA-профіль ще не реалізовано.',
+    ssmlBreaks: false,
+    note: 'Для українських вимов передавайте явні IPA-записи у PLS-словнику; SSML break теги не підтримуються.',
   },
   'edge-tts': { symbol: 'none', supportsStress: false, note: 'Наголоси не приймає.' },
   'gemini-tts': { symbol: 'none', supportsStress: false, note: 'Наголоси не приймає; текст лише нормалізується.' },
