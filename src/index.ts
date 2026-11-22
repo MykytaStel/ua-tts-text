@@ -12,6 +12,7 @@ import {
   normalizeWithAlignment,
   type NormalizationAlignmentSegment,
   type NormalizationCorrectionSet,
+  type NormalizeAlignmentResult,
   type NormalizeOptions,
 } from './normalize.js';
 import { ENGINES, render, type EngineId, type RenderResult } from './render.js';
@@ -38,7 +39,6 @@ export * from './stress.js';
 export * from './resources.js';
 export * from './tokenize.js';
 export * from './semantic.js';
-export * from './pronunciation-dictionary.js';
 export * from './pronunciation-dictionary.js';
 
 export interface PrepareOptions {
@@ -110,7 +110,7 @@ export interface PrepareSpeechResult {
   readonly prepared: PrepareResult;
   /** Phrase boundaries and pauses, planned after normalization and stress markup. */
   readonly plan: SpeechPlan;
-  /** SSML rendering when the selected engine supports break tags. */
+  /** Generic SSML for the plain profile or when no engine was selected. */
   readonly ssml?: string;
   /** Why the handoff omitted SSML, when the selected engine cannot accept it. */
   readonly ssmlUnavailableReason?: string;
@@ -121,21 +121,25 @@ export interface PrepareSpeechResult {
 }
 
 /** Shared readiness gate for CLI, Studio, and other synthesis integrations. */
-export function checkPrepared(
-  result: Pick<PrepareResult, 'text' | 'engine' | 'ambiguousOccurrences' | 'unknown' | 'warnings' | 'semanticFindings'>,
-): PreparedCheckResult {
+type PreparedCheckInput = Pick<PrepareResult, 'text' | 'ambiguousOccurrences' | 'unknown' | 'warnings' | 'semanticFindings'> &
+  Partial<Pick<PrepareResult, 'engine'>>;
+
+export function checkPrepared(result: PreparedCheckInput): PreparedCheckResult {
+  return checkReadiness(result, true);
+}
+
+function checkReadiness(result: PreparedCheckInput, checkStress: boolean): PreparedCheckResult {
   const findings: PreparedFinding[] = [
     ...lint(result.text).map((issue) => Object.freeze({ kind: 'lint' as const, issue: Object.freeze(issue) })),
-    ...result.ambiguousOccurrences.map(({ word, offset }) => Object.freeze({ kind: 'ambiguous' as const, word, offset })),
-    ...result.unknown.map((word) => Object.freeze({ kind: 'unknown-word' as const, word })),
+    ...(checkStress ? result.ambiguousOccurrences : []).map(({ word, offset }) =>
+      Object.freeze({ kind: 'ambiguous' as const, word, offset }),
+    ),
+    ...(checkStress ? result.unknown : []).map((word) => Object.freeze({ kind: 'unknown-word' as const, word })),
     ...(result.semanticFindings ?? []).map(({ kind: spanKind, raw, offset, message }) =>
       Object.freeze({ kind: 'semantic' as const, spanKind, raw, offset, message }),
     ),
-    ...result.warnings
-      .filter((warning) =>
-        /malformed entries ignored/iu.test(warning) ||
-        (/dictionary missing/iu.test(warning) && (!result.engine || ENGINES[result.engine].supportsStress)),
-      )
+    ...(checkStress ? result.warnings : [])
+      .filter((warning) => /dictionary missing|malformed entries ignored/iu.test(warning))
       .map((warning) => Object.freeze({ kind: 'resource' as const, warning })),
   ];
   return Object.freeze({ passed: findings.length === 0, findings: Object.freeze(findings) });
@@ -147,34 +151,29 @@ export function checkPrepared(
  * not a claim that the package models a voice's natural intonation.
  */
 export function prepareSpeech(input: string, options: PrepareSpeechOptions = {}): PrepareSpeechResult {
-  return speechHandoff(input, prepare(input, options), options.plan, options);
+  const normalization = alignNormalization(input, options);
+  return speechHandoff(prepareNormalized(input, options, normalization), normalization, options.plan);
 }
 
 function speechHandoff(
-  input: string,
   prepared: PrepareResult,
+  normalization: NormalizeAlignmentResult,
   planOptions: PlanOptions | undefined,
-  options: PrepareOptions,
 ): PrepareSpeechResult {
   const plan = planSpeech(prepared.text, planOptions);
-  const normalization = normalizeWithAlignment(input, {
-    ...(normalizeOptions(options) ?? {}),
-    ...(options.normalizationCorrections ? { corrections: options.normalizationCorrections } : {}),
-  });
-  const ssml = prepared.engine && ENGINES[prepared.engine].ssmlBreaks === false
-    ? undefined
-    : renderPlan(plan, 'ssml');
-  const ssmlUnavailableReason = ssml === undefined
-    ? `${prepared.engine}: SSML break tags are unsupported; use punctuation and the speech plan instead`
-    : undefined;
+  const engine = prepared.engine ? ENGINES[prepared.engine] : undefined;
+  const ssmlOutput = !prepared.engine || prepared.engine === 'plain'
+    ? { ssml: renderPlan(plan, 'ssml') }
+    : { ssmlUnavailableReason: engine?.ssmlBreaks === false
+        ? `${prepared.engine}: SSML break tags are unsupported; use text and the speech plan`
+        : `${prepared.engine}: use the speech plan with your provider adapter to render supported markup` };
   return Object.freeze({
     text: prepared.text,
     prepared,
     plan,
-    ...(ssml === undefined ? {} : { ssml }),
-    ...(ssmlUnavailableReason ? { ssmlUnavailableReason } : {}),
+    ...ssmlOutput,
     normalizationAlignment: normalization.alignment,
-    readiness: checkPrepared(prepared),
+    readiness: checkReadiness(prepared, engine?.supportsStress ?? true),
   });
 }
 
@@ -226,14 +225,15 @@ function normalizeOptions(options: Pick<PrepareOptions, 'normalize' | 'resources
   return { ...options.normalize, rules };
 }
 
-function normalizeInput(
-  input: string,
-  options: Pick<PrepareOptions, 'normalize' | 'resources' | 'normalizationCorrections'>,
-): string {
-  const normalization = normalizeOptions(options) ?? {};
-  return options.normalizationCorrections
-    ? normalizeWithAlignment(input, { ...normalization, corrections: options.normalizationCorrections }).text
-    : normalize(input, normalization);
+function alignNormalization(input: string, options: PrepareOptions): NormalizeAlignmentResult {
+  return normalizeWithAlignment(input, {
+    ...normalizeOptions(options),
+    ...(options.normalizationCorrections ? { corrections: options.normalizationCorrections } : {}),
+  });
+}
+
+function normalizeInput(input: string, options: PrepareOptions): string | NormalizeAlignmentResult {
+  return options.normalizationCorrections ? alignNormalization(input, options) : normalize(input, normalizeOptions(options));
 }
 
 function effectiveResourceFingerprint(options: Pick<PrepareOptions, 'normalize' | 'resources' | 'stress'>): string | undefined {
@@ -254,16 +254,25 @@ function assertEngine(engine: string): asserts engine is EngineId {
  * одним LLM-запитом. Без `ask` поводиться як звичайний `prepare`.
  */
 export async function prepareMany(inputs: readonly string[], options: PrepareManyOptions = {}): Promise<PrepareManyResult> {
+  return prepareBatch([...inputs], options);
+}
+
+async function prepareBatch(
+  inputs: readonly string[],
+  options: PrepareManyOptions,
+  alignments?: readonly NormalizeAlignmentResult[],
+): Promise<PrepareManyResult> {
   if (options.normalizationCorrections && inputs.length !== 1)
     throw new Error('prepareMany: normalizationCorrections are scoped to one exact input; prepare each corrected paragraph separately');
   if (inputs.length > 1 && Object.keys(options.stress?.occurrenceDecisions ?? {}).length > 0)
     throw new Error('prepareMany: use paragraph:offset keys in occurrenceDecisions for multiple inputs');
   if (inputs.length > 1 && Object.keys(options.stress?.occurrenceOverrides ?? {}).length > 0)
     throw new Error('prepareMany: use paragraph:offset keys in occurrenceOverrides for multiple inputs');
+  const normalized = alignments ?? inputs.map((input) => normalizeInput(input, options));
   const decisionFingerprint = createHash('sha256')
     .update(
       JSON.stringify({
-        normalizedInputs: inputs.map((input) => normalizeInput(input, options)),
+        normalizedInputs: normalized.map((item) => typeof item === 'string' ? item : item.text),
         engine: options.engine ?? null,
         resourceFingerprint: effectiveResourceFingerprint(options) ?? null,
       }),
@@ -293,7 +302,8 @@ export async function prepareMany(inputs: readonly string[], options: PrepareMan
     }
     return { ...effectiveOptions, stress: { ...options.stress, occurrenceDecisions, occurrenceOverrides } };
   };
-  const first = inputs.map((input, paragraph) => prepare(input, forParagraph(paragraph)));
+  const paragraphOptions = inputs.map((_, paragraph) => forParagraph(paragraph));
+  const first = inputs.map((input, paragraph) => prepareNormalized(input, paragraphOptions[paragraph]!, normalized[paragraph]!));
   if (!options.ask)
     return { results: first, decisions: {}, overrides: {}, missing: [], warnings: [], promptLength: 0, decisionFingerprint };
   if (!dictionary && !lexicon) {
@@ -349,21 +359,20 @@ export async function prepareMany(inputs: readonly string[], options: PrepareMan
   }
 
   const results = inputs.map((input, paragraph) => {
-    const paragraphOptions = forParagraph(paragraph);
-    const occurrenceDecisions: Record<number, 0 | 1> = { ...paragraphOptions.stress?.occurrenceDecisions };
+    const paragraphOption = paragraphOptions[paragraph]!;
+    const occurrenceDecisions: Record<number, 0 | 1> = { ...paragraphOption.stress?.occurrenceDecisions };
     for (const item of occurrences) {
       const choice = decisions[item.id];
       if (item.id.startsWith(`${paragraph}:`) && choice !== undefined) occurrenceDecisions[item.offset!] = choice;
     }
-    return prepare(input, {
-      ...paragraphOptions,
+    return prepareNormalized(input, {
+      ...paragraphOption,
       stress: {
-        ...paragraphOptions.stress,
+        ...paragraphOption.stress,
         occurrenceDecisions,
-        occurrenceOverrides: paragraphOptions.stress?.occurrenceOverrides ?? {},
-        overrides: { ...overrides, ...options.stress?.overrides },
+        overrides: { ...overrides, ...paragraphOption.stress?.overrides },
       },
-    });
+    }, normalized[paragraph]!, first[paragraph]);
   });
   return { results, decisions, overrides, missing, warnings, promptLength, decisionFingerprint };
 }
@@ -373,12 +382,16 @@ export async function prepareSpeechMany(
   inputs: readonly string[],
   options: PrepareSpeechManyOptions = {},
 ): Promise<PrepareSpeechManyResult> {
-  const { plan, ...prepareOptions } = options;
-  const batch = await prepareMany(inputs, prepareOptions);
+  const paragraphs = [...inputs];
+  if (options.normalizationCorrections && paragraphs.length !== 1)
+    throw new Error('prepareMany: normalizationCorrections are scoped to one exact input; prepare each corrected paragraph separately');
+  const plan = options.plan && { ...options.plan };
+  const alignments = paragraphs.map((input) => alignNormalization(input, options));
+  const batch = await prepareBatch(paragraphs, options, alignments);
   const { results, ...metadata } = batch;
   return {
     ...metadata,
-    paragraphs: results.map((prepared, index) => speechHandoff(inputs[index]!, prepared, plan, options)),
+    paragraphs: results.map((prepared, index) => speechHandoff(prepared, alignments[index]!, plan)),
   };
 }
 
@@ -389,18 +402,21 @@ function withoutDecided(context: ContextSource, decided: Readonly<Record<string,
 
 /** Нормалізація + наголоси під рушій. */
 export function prepare(input: string, options: PrepareOptions = {}): PrepareResult {
+  return prepareNormalized(input, options, normalizeInput(input, options));
+}
+
+function prepareNormalized(
+  input: string,
+  options: PrepareOptions,
+  normalization: string | NormalizeAlignmentResult,
+  previous?: PrepareResult,
+): PrepareResult {
   if (options.engine !== undefined) assertEngine(options.engine);
-  const aligned = options.normalizationCorrections
-    ? normalizeWithAlignment(input, {
-        ...(normalizeOptions(options) ?? {}),
-        corrections: options.normalizationCorrections,
-      })
-    : undefined;
-  const normalized = aligned?.text ?? normalizeInput(input, options);
-  const correctionMetadata = aligned
+  const normalized = typeof normalization === 'string' ? normalization : normalization.text;
+  const correctionMetadata = options.normalizationCorrections && typeof normalization !== 'string'
     ? {
-        normalizationFingerprint: aligned.fingerprint,
-        normalizationCorrectionsApplied: aligned.correctionsApplied,
+        normalizationFingerprint: normalization.fingerprint,
+        normalizationCorrectionsApplied: normalization.correctionsApplied,
       }
     : {};
   const activeRules = normalizeOptions(options)?.rules;
@@ -409,7 +425,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
       [correction.sourceStart, correction.sourceEnd].join(':'),
     ) ?? [],
   );
-  const semanticFindings = scanSemanticSpans(input)
+  const semanticFindings = previous?.semanticFindings ?? scanSemanticSpans(input)
     .filter((span) =>
       span.kind === 'ambiguous' &&
       activeRules?.explain(span.raw)?.status !== 'verified' &&
@@ -420,7 +436,7 @@ export function prepare(input: string, options: PrepareOptions = {}): PrepareRes
   const dictionary = options.dictionary ?? options.resources?.dictionary;
   const lexicon = options.lexicon ?? options.stress?.lexicon ?? options.resources?.lexicon;
   const context = options.context !== undefined ? options.context ?? undefined : options.stress?.context ?? options.resources?.context;
-  const resourceFingerprint = effectiveResourceFingerprint(options);
+  const resourceFingerprint = previous ? previous.resourceFingerprint : effectiveResourceFingerprint(options);
   if (!dictionary && !lexicon) {
     const engine = options.engine ?? null;
     const symbol = engine ? ENGINES[engine].symbol : 'acute';
