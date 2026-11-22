@@ -14,9 +14,10 @@
 - [x] CI: тести зі словником і без нього
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
 - [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.25.0`, перевірено 2026-11-21)
+- [ ] Перед публікацією повторно перевірити реєстр: запит 2026-11-22 не пройшов через DNS; остання підтверджена версія — `0.25.0`
 - [x] Вихідний код `0.25.0` злитий у `main` у PR #10
-- [x] `0.26.0` — кандидат із `prepareSpeech()` / `prepareSpeechMany()` та `unknownOccurrences`; локальний release gate пройшов, GitHub Actions CI успішний у [draft PR #11](https://github.com/MykytaStel/ua-tts-text/pull/11)
-- [ ] Злити PR #11, створити Git tag `v0.26.0`, опублікувати npm-пакет і перевірити `latest` та встановлення з реєстру
+- [x] `0.30.0` — кандидат із speech handoff, source alignment, перевіркою SSML сумісності та PLS-генератором IPA для ElevenLabs v4; PR #11 готовий до review
+- [ ] Злити PR #11, створити Git tag `v0.30.0`, опублікувати npm-пакет і перевірити `latest` та встановлення з реєстру
 
 ## Крок 1. GitHub (зроблено)
 

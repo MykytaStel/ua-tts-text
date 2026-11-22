@@ -76,12 +76,15 @@ try {
     [
       '--input-type=module',
       '-e',
-      `import { checkPrepared, loadResources, normalizeWithTrace, prepare, StressDictionary } from ${JSON.stringify(path.join(installed, 'dist/index.js'))};` +
+      `import { checkPrepared, createIpaPls, loadResources, normalizeWithTrace, prepare, prepareSpeech, StressDictionary } from ${JSON.stringify(path.join(installed, 'dist/index.js'))};` +
         `const resources = loadResources({ packageRoot: ${JSON.stringify(installed)}, home: ${JSON.stringify(path.join(temp, 'home'))}, dictionaryPath: ${JSON.stringify(path.join(temp, 'missing-dict.bin'))}, lexiconPath: ${JSON.stringify(names)}, normalizationPath: ${JSON.stringify(normalization)} });` +
         `const result = prepare('Кодове АТБ 15', { resources, engine: 'piper-medium' });` +
         `const trace = normalizeWithTrace('АТБ', { rules: resources.normalization });` +
         `const gate = checkPrepared(prepare('Так.', { dictionary: StressDictionary.empty(), engine: 'piper-medium' }));` +
-        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary' || trace.ruleApplications[0]?.source !== 'package smoke glossary' || !trace.steps.some((step) => step.stage === 'project-rule') || !gate.passed) throw new Error('installed API smoke failed: ' + JSON.stringify({ result, trace, gate }));`,
+        `const speech = prepareSpeech('У 2025 році.', { engine: 'plain' });` +
+        `const v4 = prepareSpeech('Київ.', { engine: 'elevenlabs-v4' });` +
+        `const pls = createIpaPls([{ grapheme: 'Київ', phoneme: '/ˈkɪjiu̯/' }]);` +
+        `if (result.text !== "Ко́дове а-те-бе п'ятнадцять" || result.resourceFingerprint !== resources.manifest.fingerprint || resources.normalization.explain('АТБ')?.source !== 'package smoke glossary' || trace.ruleApplications[0]?.source !== 'package smoke glossary' || !trace.steps.some((step) => step.stage === 'project-rule') || !gate.passed || !speech.normalizationAlignment.some((segment) => segment.sourceText.includes('2025') && segment.changed) || v4.ssml !== undefined || !v4.ssmlUnavailableReason || !pls.includes('alphabet="ipa"')) throw new Error('installed API smoke failed: ' + JSON.stringify({ result, trace, gate, speech, v4, pls }));`,
     ],
     { cwd: temp, encoding: 'utf8' },
   );

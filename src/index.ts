@@ -10,6 +10,7 @@ import { planSpeech, renderPlan, type PlanOptions, type SpeechPlan } from './pla
 import {
   normalize,
   normalizeWithAlignment,
+  type NormalizationAlignmentSegment,
   type NormalizationCorrectionSet,
   type NormalizeOptions,
 } from './normalize.js';
@@ -37,6 +38,8 @@ export * from './stress.js';
 export * from './resources.js';
 export * from './tokenize.js';
 export * from './semantic.js';
+export * from './pronunciation-dictionary.js';
+export * from './pronunciation-dictionary.js';
 
 export interface PrepareOptions {
   /** Рушій, під який готуємо. Без нього текст лише нормалізується. */
@@ -107,15 +110,19 @@ export interface PrepareSpeechResult {
   readonly prepared: PrepareResult;
   /** Phrase boundaries and pauses, planned after normalization and stress markup. */
   readonly plan: SpeechPlan;
-  /** SSML rendering of the plan; use only with engines that support SSML. */
-  readonly ssml: string;
+  /** SSML rendering when the selected engine supports break tags. */
+  readonly ssml?: string;
+  /** Why the handoff omitted SSML, when the selected engine cannot accept it. */
+  readonly ssmlUnavailableReason?: string;
+  /** Maps normalized spoken text back to UTF-16 ranges in the original input. */
+  readonly normalizationAlignment: ReadonlyArray<NormalizationAlignmentSegment>;
   /** Readiness findings that should be reviewed before synthesis. */
   readonly readiness: PreparedCheckResult;
 }
 
 /** Shared readiness gate for CLI, Studio, and other synthesis integrations. */
 export function checkPrepared(
-  result: Pick<PrepareResult, 'text' | 'ambiguousOccurrences' | 'unknown' | 'warnings' | 'semanticFindings'>,
+  result: Pick<PrepareResult, 'text' | 'engine' | 'ambiguousOccurrences' | 'unknown' | 'warnings' | 'semanticFindings'>,
 ): PreparedCheckResult {
   const findings: PreparedFinding[] = [
     ...lint(result.text).map((issue) => Object.freeze({ kind: 'lint' as const, issue: Object.freeze(issue) })),
@@ -125,7 +132,10 @@ export function checkPrepared(
       Object.freeze({ kind: 'semantic' as const, spanKind, raw, offset, message }),
     ),
     ...result.warnings
-      .filter((warning) => /dictionary missing|malformed entries ignored/iu.test(warning))
+      .filter((warning) =>
+        /malformed entries ignored/iu.test(warning) ||
+        (/dictionary missing/iu.test(warning) && (!result.engine || ENGINES[result.engine].supportsStress)),
+      )
       .map((warning) => Object.freeze({ kind: 'resource' as const, warning })),
   ];
   return Object.freeze({ passed: findings.length === 0, findings: Object.freeze(findings) });
@@ -137,16 +147,33 @@ export function checkPrepared(
  * not a claim that the package models a voice's natural intonation.
  */
 export function prepareSpeech(input: string, options: PrepareSpeechOptions = {}): PrepareSpeechResult {
-  return speechHandoff(prepare(input, options), options.plan);
+  return speechHandoff(input, prepare(input, options), options.plan, options);
 }
 
-function speechHandoff(prepared: PrepareResult, options: PlanOptions | undefined): PrepareSpeechResult {
-  const plan = planSpeech(prepared.text, options);
+function speechHandoff(
+  input: string,
+  prepared: PrepareResult,
+  planOptions: PlanOptions | undefined,
+  options: PrepareOptions,
+): PrepareSpeechResult {
+  const plan = planSpeech(prepared.text, planOptions);
+  const normalization = normalizeWithAlignment(input, {
+    ...(normalizeOptions(options) ?? {}),
+    ...(options.normalizationCorrections ? { corrections: options.normalizationCorrections } : {}),
+  });
+  const ssml = prepared.engine && ENGINES[prepared.engine].ssmlBreaks === false
+    ? undefined
+    : renderPlan(plan, 'ssml');
+  const ssmlUnavailableReason = ssml === undefined
+    ? `${prepared.engine}: SSML break tags are unsupported; use punctuation and the speech plan instead`
+    : undefined;
   return Object.freeze({
     text: prepared.text,
     prepared,
     plan,
-    ssml: renderPlan(plan, 'ssml'),
+    ...(ssml === undefined ? {} : { ssml }),
+    ...(ssmlUnavailableReason ? { ssmlUnavailableReason } : {}),
+    normalizationAlignment: normalization.alignment,
     readiness: checkPrepared(prepared),
   });
 }
@@ -187,7 +214,7 @@ export interface PrepareSpeechManyOptions extends PrepareManyOptions {
 }
 
 export interface PrepareSpeechManyResult extends Omit<PrepareManyResult, 'results'> {
-  /** Engine-ready text, speech plan, SSML and readiness findings per paragraph. */
+  /** Engine-ready text, source alignment, optional SSML and readiness findings per paragraph. */
   paragraphs: PrepareSpeechResult[];
 }
 
@@ -351,7 +378,7 @@ export async function prepareSpeechMany(
   const { results, ...metadata } = batch;
   return {
     ...metadata,
-    paragraphs: results.map((prepared) => speechHandoff(prepared, plan)),
+    paragraphs: results.map((prepared, index) => speechHandoff(inputs[index]!, prepared, plan, options)),
   };
 }
 
