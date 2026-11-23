@@ -2,6 +2,13 @@ import { cardinal, decimalWords, inflectOrdinal, ordinal, pluralForm, yearWords 
 
 export type SemanticKind = 'date' | 'time' | 'fraction' | 'ratio' | 'identifier' | 'decimal' | 'measure' | 'ambiguous';
 
+export interface SemanticReadingCandidate {
+  readonly id: string;
+  readonly kind: Exclude<SemanticKind, 'ambiguous'>;
+  readonly spoken: string;
+  readonly value: Readonly<Record<string, string | number | boolean>>;
+}
+
 /** A typed fragment in the source text. Offsets are UTF-16 indexes into the original input. */
 export interface SemanticSpan {
   readonly kind: SemanticKind;
@@ -12,6 +19,8 @@ export interface SemanticSpan {
   /** Spoken form when the reading is safe and unambiguous. */
   readonly spoken?: string;
   readonly reason?: string;
+  /** Bounded readings generated only from values present in the source token. */
+  readonly candidates?: ReadonlyArray<SemanticReadingCandidate>;
 }
 
 interface Candidate extends SemanticSpan {
@@ -57,6 +66,7 @@ function candidate(
   reason?: string,
   value?: Readonly<Record<string, string | number | boolean>>,
   rawOverride?: string,
+  candidates?: ReadonlyArray<SemanticReadingCandidate>,
 ): Candidate {
   const raw = rawOverride ?? match[0];
   return {
@@ -68,6 +78,7 @@ function candidate(
     ...(spoken === undefined ? {} : { spoken }),
     ...(reason === undefined ? {} : { reason }),
     ...(value === undefined ? {} : { value: Object.freeze(value) }),
+    ...(candidates === undefined ? {} : { candidates: Object.freeze(candidates.map((item) => Object.freeze({ ...item, value: Object.freeze({ ...item.value }) }))) }),
   };
 }
 
@@ -125,6 +136,38 @@ export function scanSemanticSpans(input: string): ReadonlyArray<SemanticSpan> {
         { year, month, day },
       );
     }),
+    ...allMatches(input, /(?<![\p{L}\d])(\d{1,2})\/(\d{1,2})\/(\d{4})(?![\p{L}\d])/gu, (match) => {
+      const [, firstRaw = '', secondRaw = '', yearRaw = ''] = match;
+      const first = Number(firstRaw), second = Number(secondRaw), year = Number(yearRaw);
+      const dayFirstValid = validIsoDate(year, second, first);
+      const monthFirstValid = validIsoDate(year, first, second);
+      const readings: SemanticReadingCandidate[] = [];
+      if (dayFirstValid) readings.push({
+        id: 'day-first', kind: 'date', spoken: spokenDate(year, second, first)!,
+        value: { year, month: second, day: first, order: 'day-first' },
+      });
+      if (monthFirstValid && (first !== second || !dayFirstValid)) readings.push({
+        id: 'month-first', kind: 'date', spoken: spokenDate(year, first, second)!,
+        value: { year, month: first, day: second, order: 'month-first' },
+      });
+      if (readings.length === 1) {
+        const selected = readings[0]!;
+        return candidate(input, match, 'date', 105, selected.spoken, undefined, selected.value, undefined, readings);
+      }
+      return candidate(
+        input,
+        match,
+        'ambiguous',
+        105,
+        undefined,
+        readings.length > 1
+          ? 'Формат дати через скісну риску допускає кілька порядків дня й місяця.'
+          : 'Некоректна дата у форматі ДД/ММ/РРРР або ММ/ДД/РРРР.',
+        { first, second, year },
+        undefined,
+        readings,
+      );
+    }),
     ...allMatches(input, /(?<![\p{L}\d])\d{1,2}:\d{1,2}(?![\p{L}\d])/gu, (match) => {
       const [hourRaw = '', minuteRaw = ''] = match[0].split(':');
       const hour = Number(hourRaw), minute = Number(minuteRaw);
@@ -132,17 +175,33 @@ export function scanSemanticSpans(input: string): ReadonlyArray<SemanticSpan> {
       const before = input.slice(Math.max(0, match.index - 18), match.index);
       const timeContext = /(?:о|об|годин|час(?:у|і)?)\s*$/iu.test(before);
       const ratioContext = /(?:рахунок|матч(?:у|і)?|результат|перемог(?:а|и|у))\s*$/iu.test(before);
+      const uncertainClock = valid && !timeContext && !ratioContext && minuteRaw.length === 1;
       const asTime = valid && !ratioContext && (minuteRaw.length === 2 || timeContext);
       const asRatio = ratioContext || (!asTime && !timeContext);
-      const kind: SemanticKind = asRatio ? 'ratio' : valid ? 'time' : 'ambiguous';
+      const kind: SemanticKind = uncertainClock ? 'ambiguous' : asRatio ? 'ratio' : valid ? 'time' : 'ambiguous';
+      const readings: SemanticReadingCandidate[] = valid
+        ? uncertainClock
+          ? [
+              { id: 'time', kind: 'time', spoken: spokenTime(hour, minute, false), value: { hour, minute } },
+              { id: 'ratio', kind: 'ratio', spoken: `${cardinal(hour)} на ${cardinal(minute)}`, value: { numerator: hour, denominator: minute } },
+            ]
+          : [{
+              id: asRatio ? 'ratio' : 'time',
+              kind: asRatio ? 'ratio' : 'time',
+              spoken: asRatio ? `${cardinal(hour)} на ${cardinal(minute)}` : spokenTime(hour, minute, timeContext),
+              value: asRatio ? { numerator: hour, denominator: minute } : { hour, minute },
+            }]
+        : [];
       return candidate(
         input,
         match,
         kind,
         90,
         kind === 'ambiguous' ? undefined : asRatio ? `${cardinal(hour)} на ${cardinal(minute)}` : spokenTime(hour, minute, timeContext),
-        kind === 'ambiguous' ? 'Некоректний час у форматі ГГ:ХХ.' : undefined,
+        kind === 'ambiguous' ? uncertainClock ? 'Запис може позначати час або співвідношення.' : 'Некоректний час у форматі ГГ:ХХ.' : undefined,
         { hour, minute },
+        undefined,
+        readings,
       );
     }),
     // A zero-prefixed group after a digit and whitespace may be part of a grouped quantity (1 000), not an identifier.
@@ -157,6 +216,12 @@ export function scanSemanticSpans(input: string): ReadonlyArray<SemanticSpan> {
           : undefined,
         undefined,
         { identifier: match[0], digits: match[0].replace(/\D/gu, ''), leadingZeros: /^0\d/u.test(match[0]) },
+        undefined,
+        /^0\d/u.test(match[0]) ? [{
+          id: 'digit-by-digit', kind: 'identifier',
+          spoken: [...match[0]].map((digit) => ['нуль', 'один', 'два', 'три', 'чотири', "п'ять", 'шість', 'сім', 'вісім', "дев'ять"][Number(digit)]).join(' '),
+          value: { identifier: match[0], digits: match[0], leadingZeros: true },
+        }] : undefined,
       ),
     ),
     ...allMatches(input, /(?<![\d.,/])(\d{1,9})\s*\/\s*(\d{1,9})(?![\d.,/])/gu, (match) => {
@@ -173,7 +238,9 @@ export function scanSemanticSpans(input: string): ReadonlyArray<SemanticSpan> {
           ? 'пів'
           : `${cardinal(numerator, 'f')} ${inflectOrdinal(ordinal(denominator), numerator === 1 ? 'fem' : 'plurLoc')}`
         : `${cardinal(numerator)} на ${cardinal(denominator)}`;
-      return candidate(input, match, isFraction ? 'fraction' : 'ratio', 85, spoken, undefined, { numerator, denominator });
+      return candidate(input, match, isFraction ? 'fraction' : 'ratio', 85, spoken, undefined, { numerator, denominator }, undefined, [{
+        id: isFraction ? 'fraction' : 'ratio', kind: isFraction ? 'fraction' : 'ratio', spoken, value: { numerator, denominator },
+      }]);
     }),
     ...allMatches(input, /(?<![\p{L}\d])\d+[.,]\d+(?![\p{L}\d])/gu, (match) => {
       const [whole = '0', fraction = ''] = match[0].split(/[.,]/u);
@@ -213,6 +280,7 @@ export function scanSemanticSpans(input: string): ReadonlyArray<SemanticSpan> {
       ...(item.value ? { value: item.value } : {}),
       ...(item.spoken === undefined ? {} : { spoken: item.spoken }),
       ...(item.reason === undefined ? {} : { reason: item.reason }),
+      ...(item.candidates === undefined ? {} : { candidates: item.candidates }),
     };
     accepted.push(Object.freeze(span));
     end = item.end;

@@ -96,4 +96,29 @@ describe('normalization review API', () => {
     expect(applied).toMatchObject({ applied: 0, unresolved: 2, fingerprint: review.fingerprint });
     expect(applied.corrections).toBeUndefined();
   });
+
+  it('applies a selected bounded date candidate and rejects an unavailable candidate', () => {
+    const date = 'Дата 01/02/2026.';
+    const review = createNormalizationReview(date);
+    const occurrence = review.occurrences[0]!;
+
+    expect(occurrence.candidates?.map(({ id }) => id)).toEqual(['day-first', 'month-first']);
+    const selected = {
+      ...review,
+      occurrences: review.occurrences.map((item) => ({ ...item, candidateId: 'day-first' })),
+    };
+    const applied = applyNormalizationReview(date, selected);
+    expect(applied.applied).toBe(1);
+    const prepared = prepare(date, {
+      engine: 'plain',
+      ...(applied.corrections ? { normalizationCorrections: applied.corrections } : {}),
+    });
+    expect(prepared.text).toContain('першого лютого');
+    expect(prepared.semanticFindings).toEqual([]);
+
+    expect(() => applyNormalizationReview(date, {
+      ...review,
+      occurrences: review.occurrences.map((item) => ({ ...item, candidateId: 'invented' })),
+    })).toThrow(/candidate .*not available/u);
+  });
 });

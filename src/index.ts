@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import type { ContextSource } from './context.js';
 import { StressDictionary } from './dict.js';
 import type { StressSource } from './lexicon.js';
-import { planSpeech, renderPlan, type PlanOptions, type SpeechPlan } from './plan.js';
+import { chunkSpeech, planSpeech, renderPlan, type ChunkSpeechOptions, type PlanOptions, type SpeechChunk, type SpeechPlan, type SpeechProtectedRange } from './plan.js';
 import {
   normalize,
   normalizeWithAlignment,
@@ -22,6 +22,12 @@ import type { Decisions } from './agent.js';
 import { convertStressMarks, type StressEvidence, type StressOptions } from './stress.js';
 import type { Resources } from './resources.js';
 import { scanSemanticSpans, type SemanticKind } from './semantic.js';
+import {
+  applyNormalizationReview,
+  createNormalizationReview,
+  type ApplyNormalizationReviewResult,
+  type NormalizationReview,
+} from './normalization-review.js';
 
 export * from './context.js';
 export * from './dict.js';
@@ -100,6 +106,8 @@ export interface PreparedCheckResult {
 export interface PrepareSpeechOptions extends PrepareOptions {
   /** Optional pacing overrides for the handoff plan. */
   plan?: PlanOptions;
+  /** Optional hard text budget supplied by the consuming TTS adapter. */
+  chunking?: Pick<ChunkSpeechOptions, 'maxChars'>;
 }
 
 /** One consistent handoff from Ukrainian text preparation to a TTS adapter. */
@@ -116,8 +124,38 @@ export interface PrepareSpeechResult {
   readonly ssmlUnavailableReason?: string;
   /** Maps normalized spoken text back to UTF-16 ranges in the original input. */
   readonly normalizationAlignment: ReadonlyArray<NormalizationAlignmentSegment>;
+  /** Maps each normalized segment to its actual engine-ready text after stress markup. */
+  readonly speechTextAlignment: ReadonlyArray<SpeechTextAlignmentSegment>;
+  /** Source and engine-text ranges for readiness findings that identify a precise occurrence. */
+  readonly readinessAlignment: ReadonlyArray<SpeechFindingAlignment>;
   /** Readiness findings that should be reviewed before synthesis. */
   readonly readiness: PreparedCheckResult;
+  /** Optional provider-sized requests. Present only when `chunking.maxChars` is supplied. */
+  readonly chunks?: ReadonlyArray<SpeechChunk>;
+}
+
+export interface SpeechTextAlignmentSegment {
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  readonly normalizedStart: number;
+  readonly normalizedEnd: number;
+  readonly engineStart: number;
+  readonly engineEnd: number;
+  readonly sourceText: string;
+  readonly normalizedText: string;
+  readonly engineText: string;
+  readonly changed: boolean;
+}
+
+export interface SpeechFindingAlignment {
+  readonly findingIndex: number;
+  readonly kind: PreparedFinding['kind'];
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  readonly engineStart: number;
+  readonly engineEnd: number;
+  readonly sourceText: string;
+  readonly engineText: string;
 }
 
 /** Shared readiness gate for CLI, Studio, and other synthesis integrations. */
@@ -134,7 +172,7 @@ function checkReadiness(result: PreparedCheckInput, checkStress: boolean): Prepa
     ...(checkStress ? result.ambiguousOccurrences : []).map(({ word, offset }) =>
       Object.freeze({ kind: 'ambiguous' as const, word, offset }),
     ),
-    ...(checkStress ? result.unknown : []).map((word) => Object.freeze({ kind: 'unknown-word' as const, word })),
+    ...(checkStress ? result.unknown.map((word) => Object.freeze({ kind: 'unknown-word' as const, word })) : []),
     ...(result.semanticFindings ?? []).map(({ kind: spanKind, raw, offset, message }) =>
       Object.freeze({ kind: 'semantic' as const, spanKind, raw, offset, message }),
     ),
@@ -152,13 +190,15 @@ function checkReadiness(result: PreparedCheckInput, checkStress: boolean): Prepa
  */
 export function prepareSpeech(input: string, options: PrepareSpeechOptions = {}): PrepareSpeechResult {
   const normalization = alignNormalization(input, options);
-  return speechHandoff(prepareNormalized(input, options, normalization), normalization, options.plan);
+  return speechHandoff(input, prepareNormalized(input, options, normalization), normalization, options.plan, options.chunking);
 }
 
 function speechHandoff(
+  input: string,
   prepared: PrepareResult,
   normalization: NormalizeAlignmentResult,
   planOptions: PlanOptions | undefined,
+  chunking: PrepareSpeechOptions['chunking'] | undefined,
 ): PrepareSpeechResult {
   const plan = planSpeech(prepared.text, planOptions);
   const engine = prepared.engine ? ENGINES[prepared.engine] : undefined;
@@ -167,14 +207,162 @@ function speechHandoff(
     : { ssmlUnavailableReason: engine?.ssmlBreaks === false
         ? `${prepared.engine}: SSML break tags are unsupported; use text and the speech plan`
         : `${prepared.engine}: use the speech plan with your provider adapter to render supported markup` };
+  const offsets = engineOffsets(
+    normalization.text,
+    prepared.text,
+    prepared.engine !== null && ENGINES[prepared.engine].symbol === 'plus-after',
+  );
+  const speechTextAlignment = normalization.alignment.map((segment) => {
+    const engineStart = offsets[segment.spokenStart]!;
+    const engineEnd = offsets[segment.spokenEnd]!;
+    return Object.freeze({
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+      normalizedStart: segment.spokenStart,
+      normalizedEnd: segment.spokenEnd,
+      engineStart,
+      engineEnd,
+      sourceText: segment.sourceText,
+      normalizedText: segment.spokenText,
+      engineText: prepared.text.slice(engineStart, engineEnd),
+      changed: segment.changed || engineStart !== segment.spokenStart || engineEnd - engineStart !== segment.spokenEnd - segment.spokenStart,
+    });
+  });
+  const readiness = checkReadiness(prepared, engine?.supportsStress ?? true);
+  const chunks = chunking
+    ? chunkSpeech(prepared.text, { ...chunking, protectedRanges: semanticProtectedRanges(input, normalization, offsets) })
+    : undefined;
   return Object.freeze({
     text: prepared.text,
     prepared,
     plan,
     ...ssmlOutput,
     normalizationAlignment: normalization.alignment,
-    readiness: checkReadiness(prepared, engine?.supportsStress ?? true),
+    speechTextAlignment: Object.freeze(speechTextAlignment),
+    readiness,
+    readinessAlignment: Object.freeze(alignReadiness(input, normalization, prepared, offsets, readiness)),
+    ...(chunks ? { chunks } : {}),
   });
+}
+
+function semanticProtectedRanges(
+  input: string,
+  normalization: NormalizeAlignmentResult,
+  offsets: ReadonlyArray<number>,
+): ReadonlyArray<SpeechProtectedRange> {
+  return scanSemanticSpans(input).flatMap((span) => {
+    const mapped = normalization.alignment.filter((segment) => segment.sourceStart < span.end && segment.sourceEnd > span.start);
+    if (mapped.length === 0) return [];
+    const normalizedStart = Math.min(...mapped.map((segment) => segment.spokenStart));
+    const normalizedEnd = Math.max(...mapped.map((segment) => segment.spokenEnd));
+    const start = offsets[normalizedStart];
+    const end = offsets[normalizedEnd];
+    return start === undefined || end === undefined || end <= start
+      ? []
+      : [{ start, end, reason: `Нерозривний семантичний фрагмент типу «${span.kind}» перевищує бюджет адаптера.` }];
+  });
+}
+
+const STRESS_MARKS = new Set(['+', '\u0301']);
+
+/** Translate UTF-16 boundaries through stress marks inserted by the engine renderer. */
+function engineOffsets(normalized: string, engineText: string, plusAfter = false): number[] {
+  const offsets = new Array<number>(normalized.length + 1);
+  let sourceIndex = 0;
+  let engineIndex = 0;
+  offsets[0] = 0;
+  while (sourceIndex < normalized.length) {
+    const codePoint = String.fromCodePoint(normalized.codePointAt(sourceIndex)!);
+    while (
+      engineIndex < engineText.length &&
+      (engineText[engineIndex] === '\u0301' || (plusAfter && engineText[engineIndex] === '+')) &&
+      engineText[engineIndex] !== codePoint
+    )
+      engineIndex += 1;
+    offsets[sourceIndex] = engineIndex;
+    if (STRESS_MARKS.has(codePoint) && engineText.slice(engineIndex, engineIndex + codePoint.length) !== codePoint) {
+      sourceIndex += codePoint.length;
+      offsets[sourceIndex] = engineIndex;
+      continue;
+    }
+    while (!plusAfter && engineIndex < engineText.length && engineText[engineIndex] === '+' && engineText[engineIndex] !== codePoint)
+      engineIndex += 1;
+    if (engineText.slice(engineIndex, engineIndex + codePoint.length) !== codePoint)
+      throw new Error('prepareSpeech: engine text cannot be aligned to normalized text');
+    for (let unit = 1; unit < codePoint.length; unit += 1) offsets[sourceIndex + unit] = engineIndex + unit;
+    sourceIndex += codePoint.length;
+    engineIndex += codePoint.length;
+    offsets[sourceIndex] = engineIndex;
+  }
+  while (engineIndex < engineText.length && STRESS_MARKS.has(engineText[engineIndex]!)) engineIndex += 1;
+  if (engineIndex !== engineText.length)
+    throw new Error('prepareSpeech: engine text contains unaligned characters');
+  offsets[normalized.length] = engineText.length;
+  return offsets;
+}
+
+function sourceRangeForNormalizedRange(
+  start: number,
+  end: number,
+  alignment: ReadonlyArray<NormalizationAlignmentSegment>,
+): { start: number; end: number } | undefined {
+  const matches = alignment.filter((segment) => segment.spokenStart < end && segment.spokenEnd > start);
+  if (matches.length === 0) return undefined;
+  return {
+    start: Math.min(...matches.map((segment) => segment.sourceStart)),
+    end: Math.max(...matches.map((segment) => segment.sourceEnd)),
+  };
+}
+
+function alignReadiness(
+  input: string,
+  normalization: NormalizeAlignmentResult,
+  prepared: PrepareResult,
+  offsets: ReadonlyArray<number>,
+  readiness: PreparedCheckResult,
+): SpeechFindingAlignment[] {
+  const engineText = prepared.text;
+  const spans = scanSemanticSpans(input);
+  const aligned: SpeechFindingAlignment[] = [];
+  readiness.findings.forEach((finding, findingIndex) => {
+    const ranges: Array<{ source: { start: number; end: number }; normalizedStart: number; normalizedEnd: number }> = [];
+    if (finding.kind === 'semantic') {
+      const source = { start: finding.offset, end: finding.offset + finding.raw.length };
+      const span = spans.find((item) => item.start === source.start && item.end === source.end);
+      if (span) {
+        const segment = normalization.alignment.find((item) => item.sourceStart <= span.start && item.sourceEnd >= span.end);
+        if (segment) ranges.push({ source, normalizedStart: segment.spokenStart, normalizedEnd: segment.spokenEnd });
+      }
+    } else if (finding.kind === 'ambiguous') {
+      const normalizedStart = finding.offset;
+      const normalizedEnd = normalizedStart + finding.word.length;
+      const source = sourceRangeForNormalizedRange(normalizedStart, normalizedEnd, normalization.alignment);
+      if (source) ranges.push({ source, normalizedStart, normalizedEnd });
+    } else if (finding.kind === 'unknown-word') {
+      for (const occurrence of prepared.unknownOccurrences.filter(({ word }) => word === finding.word)) {
+        const normalizedStart = occurrence.offset;
+        const normalizedEnd = normalizedStart + occurrence.word.length;
+        const source = sourceRangeForNormalizedRange(normalizedStart, normalizedEnd, normalization.alignment);
+        if (source) ranges.push({ source, normalizedStart, normalizedEnd });
+      }
+    }
+    for (const range of ranges) {
+      const engineStart = offsets[range.normalizedStart];
+      const engineEnd = offsets[range.normalizedEnd];
+      if (engineStart === undefined || engineEnd === undefined) continue;
+      aligned.push(Object.freeze({
+        findingIndex,
+        kind: finding.kind,
+        sourceStart: range.source.start,
+        sourceEnd: range.source.end,
+        engineStart,
+        engineEnd,
+        sourceText: input.slice(range.source.start, range.source.end),
+        engineText: engineText.slice(engineStart, engineEnd),
+      }));
+    }
+  });
+  return aligned;
 }
 
 export interface PrepareManyOptions extends PrepareOptions {
@@ -210,6 +398,8 @@ export interface PrepareManyResult {
 export interface PrepareSpeechManyOptions extends PrepareManyOptions {
   /** Optional pacing overrides shared by all paragraphs. */
   plan?: PlanOptions;
+  /** Optional hard text budget shared by all paragraphs. */
+  chunking?: Pick<ChunkSpeechOptions, 'maxChars'>;
 }
 
 export interface PrepareSpeechManyResult extends Omit<PrepareManyResult, 'results'> {
@@ -391,7 +581,7 @@ export async function prepareSpeechMany(
   const { results, ...metadata } = batch;
   return {
     ...metadata,
-    paragraphs: results.map((prepared, index) => speechHandoff(prepared, alignments[index]!, plan)),
+    paragraphs: results.map((prepared, index) => speechHandoff(paragraphs[index]!, prepared, alignments[index]!, plan, options.chunking)),
   };
 }
 
@@ -503,4 +693,241 @@ function prepareNormalized(
     ...(resourceFingerprint ? { resourceFingerprint } : {}),
     ...correctionMetadata,
   };
+}
+
+export type SpeechReviewOccurrence =
+  | {
+      readonly kind: 'homograph';
+      readonly id: string;
+      readonly word: string;
+      readonly key: string;
+      readonly context: string;
+      readonly variants: ReadonlyArray<string>;
+      readonly choice: 0 | 1 | null;
+      readonly sourceStart: number;
+      readonly sourceEnd: number;
+      readonly sourceText: string;
+      readonly normalizedStart: number;
+      readonly normalizedEnd: number;
+      readonly engineStart: number;
+      readonly engineEnd: number;
+      readonly engineText: string;
+    }
+  | {
+      readonly kind: 'unknown';
+      readonly id: string;
+      readonly word: string;
+      readonly key: string;
+      readonly context: string;
+      readonly vowels: ReadonlyArray<{ readonly position: number; readonly letter: string }>;
+      readonly stressPosition: number | null;
+      readonly sourceStart: number;
+      readonly sourceEnd: number;
+      readonly sourceText: string;
+      readonly normalizedStart: number;
+      readonly normalizedEnd: number;
+      readonly engineStart: number;
+      readonly engineEnd: number;
+      readonly engineText: string;
+    };
+
+export interface SpeechReview {
+  readonly format: 'ua-tts-text-speech-review';
+  readonly version: 1;
+  /** Binds both review sections to the exact source, engine, and resources. */
+  readonly fingerprint: string;
+  readonly engine: EngineId | null;
+  readonly resourceFingerprint: string | null;
+  readonly normalization: NormalizationReview;
+  readonly occurrences: ReadonlyArray<SpeechReviewOccurrence>;
+}
+
+export interface ApplySpeechReviewResult {
+  readonly speech: PrepareSpeechResult;
+  readonly normalization: ApplyNormalizationReviewResult;
+  readonly appliedReadings: number;
+  readonly unresolvedReadings: number;
+  readonly fingerprint: string;
+}
+
+function reviewSentenceAt(text: string, index: number): string {
+  let start = 0;
+  let end = text.length;
+  for (const match of text.matchAll(/[.!?\n]/gu)) {
+    const boundary = match.index! + match[0].length;
+    if (match[0] === '.' && /\d/u.test(text[match.index! - 1] ?? '') && /\d/u.test(text[boundary] ?? '')) continue;
+    if (match.index! < index) start = boundary;
+    else {
+      end = boundary;
+      break;
+    }
+  }
+  return text.slice(start, end).trim();
+}
+
+function speechReviewFingerprint(
+  input: string,
+  normalizationFingerprint: string,
+  options: PrepareSpeechOptions,
+): string {
+  return createHash('sha256').update(JSON.stringify({
+    format: 'ua-tts-text-speech-review',
+    version: 1,
+    input,
+    normalizationFingerprint,
+    engine: options.engine ?? null,
+    resourceFingerprint: effectiveResourceFingerprint(options) ?? null,
+  })).digest('hex');
+}
+
+function speechReviewOccurrences(input: string, speech: PrepareSpeechResult): SpeechReviewOccurrence[] {
+  const normalized = speech.normalizationAlignment.map((item) => item.spokenText).join('');
+  const offsets = engineOffsets(
+    normalized,
+    speech.text,
+    speech.prepared.engine !== null && ENGINES[speech.prepared.engine].symbol === 'plus-after',
+  );
+  const output: SpeechReviewOccurrence[] = [];
+  const add = (kind: 'homograph' | 'unknown', word: string, start: number, extra: Record<string, unknown>) => {
+    const end = start + word.length;
+    const source = sourceRangeForNormalizedRange(start, end, speech.normalizationAlignment);
+    const engineStart = offsets[start];
+    const engineEnd = offsets[end];
+    if (!source || engineStart === undefined || engineEnd === undefined) return;
+    const mappedSegments = speech.normalizationAlignment.filter((segment) => segment.spokenStart < end && segment.spokenEnd > start);
+    const sourceRelativeOffset = start - Math.min(...mappedSegments.map((segment) => segment.spokenStart));
+    const common = {
+      kind,
+      id: `${kind}:${source.start}:${source.end}:${sourceRelativeOffset}`,
+      word,
+      key: word.toLocaleLowerCase('uk-UA'),
+      context: reviewSentenceAt(input, source.start),
+      sourceStart: source.start,
+      sourceEnd: source.end,
+      sourceText: input.slice(source.start, source.end),
+      normalizedStart: start,
+      normalizedEnd: end,
+      engineStart,
+      engineEnd,
+      engineText: speech.text.slice(engineStart, engineEnd),
+      ...extra,
+    };
+    output.push(Object.freeze(common) as SpeechReviewOccurrence);
+  };
+  for (const occurrence of speech.prepared.homographs) {
+    if (Number.isInteger(occurrence.offset))
+      add('homograph', occurrence.word, occurrence.offset!, { variants: Object.freeze([...occurrence.variants]), choice: null });
+  }
+  for (const occurrence of speech.prepared.unknownOccurrences) {
+    const vowels = [...occurrence.word].flatMap((letter, position) => /[аеєиіїоуяю]/iu.test(letter) ? [{ position, letter }] : []);
+    if (vowels.length < 2) continue;
+    add('unknown', occurrence.word, occurrence.offset, { vowels: Object.freeze(vowels), stressPosition: null });
+  }
+  return output.sort((left, right) => left.normalizedStart - right.normalizedStart || left.kind.localeCompare(right.kind));
+}
+
+/** Create one editable JSON review for normalization, homographs, and unknown words. */
+export function createSpeechReview(input: string, options: PrepareSpeechOptions = {}): SpeechReview {
+  if (options.normalizationCorrections)
+    throw new Error('createSpeechReview: export from the original text without pre-applied normalization corrections');
+  const normalizationOptions = normalizeOptions(options) ?? {};
+  const normalization = createNormalizationReview(input, normalizationOptions);
+  const speech = prepareSpeech(input, { ...options, stress: { ...options.stress, trace: true } });
+  return Object.freeze({
+    format: 'ua-tts-text-speech-review',
+    version: 1,
+    fingerprint: speechReviewFingerprint(input, normalization.fingerprint, options),
+    engine: options.engine ?? null,
+    resourceFingerprint: effectiveResourceFingerprint(options) ?? null,
+    normalization,
+    occurrences: Object.freeze(speechReviewOccurrences(input, speech)),
+  });
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+/** Validate a unified review and apply selected normalization and stress readings. */
+export function applySpeechReview(
+  input: string,
+  review: unknown,
+  options: PrepareSpeechOptions = {},
+): ApplySpeechReviewResult {
+  if (options.normalizationCorrections)
+    throw new Error('applySpeechReview: pass the review against original text without pre-applied corrections');
+  if (!isObjectRecord(review) || review.format !== 'ua-tts-text-speech-review' || review.version !== 1 ||
+      !Array.isArray(review.occurrences) || !isObjectRecord(review.normalization))
+    throw new Error('speech review: unsupported or malformed file (expected ua-tts-text-speech-review v1)');
+
+  const normalizationOptions = normalizeOptions(options) ?? {};
+  const appliedNormalization = applyNormalizationReview(input, review.normalization, normalizationOptions);
+  const fingerprint = speechReviewFingerprint(input, appliedNormalization.fingerprint, options);
+  if (review.fingerprint !== fingerprint || review.engine !== (options.engine ?? null) ||
+      review.resourceFingerprint !== (effectiveResourceFingerprint(options) ?? null))
+    throw new Error('speech review: file is stale for this text, engine, or resource snapshot; export a new review file');
+
+  const previewOptions: PrepareSpeechOptions = {
+    ...options,
+    ...(appliedNormalization.corrections ? { normalizationCorrections: appliedNormalization.corrections } : {}),
+    stress: { ...options.stress, trace: true },
+  };
+  const preview = prepareSpeech(input, previewOptions);
+  const current = new Map(speechReviewOccurrences(input, preview).map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const decisions: Record<number, 0 | 1> = { ...options.stress?.occurrenceDecisions };
+  const overrides: Record<number, number> = { ...options.stress?.occurrenceOverrides };
+  let appliedReadings = 0;
+  for (const item of review.occurrences) {
+    if (!isObjectRecord(item) || typeof item.id !== 'string')
+      throw new Error('speech review: each occurrence must be an object with an id');
+    if (seen.has(item.id)) throw new Error(`speech review: duplicate occurrence ${item.id}`);
+    seen.add(item.id);
+    const expected = current.get(item.id);
+    if (!expected || item.kind !== expected.kind || item.word !== expected.word || item.key !== expected.key ||
+        item.context !== expected.context || item.sourceStart !== expected.sourceStart || item.sourceEnd !== expected.sourceEnd ||
+        item.sourceText !== expected.sourceText || !sameJsonValue(item.variants, 'variants' in expected ? expected.variants : undefined) ||
+        !sameJsonValue(item.vowels, 'vowels' in expected ? expected.vowels : undefined))
+      throw new Error(`speech review: occurrence ${item.id} no longer matches the source; export a new review file`);
+
+    if (expected.kind === 'homograph') {
+      if (item.choice !== null && item.choice !== 0 && item.choice !== 1)
+        throw new Error(`speech review: choice for ${item.id} must be 0, 1, or null`);
+      if (item.choice !== null) {
+        decisions[expected.normalizedStart] = item.choice;
+        appliedReadings += 1;
+      }
+    } else {
+      if (item.stressPosition !== null && (typeof item.stressPosition !== 'number' || !expected.vowels.some(({ position }) => position === item.stressPosition)))
+        throw new Error(`speech review: stressPosition for ${item.id} must select a listed vowel or be null`);
+      if (item.stressPosition !== null) {
+        overrides[expected.normalizedStart] = item.stressPosition as number;
+        appliedReadings += 1;
+      }
+    }
+  }
+  for (const [id, occurrence] of current) {
+    if (seen.has(id)) continue;
+    const belongsToSelectedNormalization = appliedNormalization.corrections?.corrections.some((correction) =>
+      correction.sourceStart <= occurrence.sourceStart && correction.sourceEnd >= occurrence.sourceEnd,
+    ) ?? false;
+    if (!belongsToSelectedNormalization)
+      throw new Error('speech review: file is missing occurrences; export a new review file');
+  }
+
+  const speech = prepareSpeech(input, {
+    ...previewOptions,
+    stress: { ...previewOptions.stress, occurrenceDecisions: decisions, occurrenceOverrides: overrides },
+  });
+  return Object.freeze({
+    speech,
+    normalization: appliedNormalization,
+    appliedReadings,
+    unresolvedReadings: current.size - appliedReadings,
+    fingerprint,
+  });
 }

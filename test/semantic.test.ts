@@ -20,6 +20,28 @@ describe('semantic spans', () => {
     expect(spans.filter((span) => span.kind === 'identifier')).toEqual([]);
   });
 
+  it('offers only value-preserving candidates for ambiguous dates and clocks', () => {
+    const spans = scanSemanticSpans('Дата 01/02/2026, запис 12:3, код 000123, 1/2 склянки.');
+
+    expect(spans.map(({ kind }) => kind)).toEqual(['ambiguous', 'ambiguous', 'identifier', 'fraction']);
+    expect(spans[0]?.candidates?.map(({ id, value }) => [id, value])).toEqual([
+      ['day-first', { year: 2026, month: 2, day: 1, order: 'day-first' }],
+      ['month-first', { year: 2026, month: 1, day: 2, order: 'month-first' }],
+    ]);
+    expect(spans[1]?.candidates?.map(({ id, value }) => [id, value])).toEqual([
+      ['time', { hour: 12, minute: 3 }],
+      ['ratio', { numerator: 12, denominator: 3 }],
+    ]);
+    expect(spans[2]?.candidates?.[0]).toMatchObject({
+      id: 'digit-by-digit',
+      value: { identifier: '000123', digits: '000123', leadingZeros: true },
+    });
+    expect(spans[3]?.candidates?.[0]).toMatchObject({
+      id: 'fraction',
+      value: { numerator: 1, denominator: 2 },
+    });
+  });
+
   it('maps typed trace steps back to the original string', () => {
     const input = 'é́ дата 2026-11-15';
     const trace = normalizeWithTrace(input);

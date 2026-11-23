@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NormalizationRules, prepareSpeech, prepareSpeechMany, StressDictionary } from '../src/index.js';
+import { Lexicon, NormalizationRules, prepareSpeech, prepareSpeechMany, StressDictionary } from '../src/index.js';
 
 describe('TTS handoff', () => {
   it('plans normalized text and reports every unknown-word occurrence', () => {
@@ -19,6 +19,101 @@ describe('TTS handoff', () => {
     expect(prepared.readiness.findings.map(({ kind }) => kind)).toContain('unknown-word');
     expect(prepared.ssml).toBeUndefined();
     expect(prepareSpeech(input, { engine: 'plain' }).ssml).toContain('<break time="480ms"/>');
+  });
+
+  it('keeps the legacy alignment and adds source ranges for actual stress-marked engine text', () => {
+    const input = '😀 Молоко. Краудфандинг.';
+    const lexicon = {
+      lookup: (word: string) => word.toLocaleLowerCase('uk-UA') === 'молоко'
+        ? { position: 5, alternative: null, dual: false }
+        : null,
+    };
+    const speech = prepareSpeech(input, {
+      engine: 'tts-uk',
+      dictionary: StressDictionary.empty(),
+      lexicon,
+      stress: { inferFromStem: false },
+    });
+    const milk = speech.speechTextAlignment.find(({ sourceText }) => sourceText.includes('Молоко'));
+    const unknown = speech.readinessAlignment.find(({ kind }) => kind === 'unknown-word');
+
+    expect(speech.normalizationAlignment.map(({ spokenText }) => spokenText).join('')).toBe('😀 Молоко. Краудфандинг.');
+    expect(milk?.sourceStart).toBe(input.indexOf('Молоко'));
+    expect(milk?.engineText).toContain('+');
+    expect(speech.text.slice(milk!.engineStart, milk!.engineEnd)).toBe(milk!.engineText);
+    expect(unknown).toMatchObject({
+      sourceStart: input.indexOf('Краудфандинг'),
+      sourceText: 'Краудфандинг',
+      engineText: 'Краудфандинг',
+    });
+  });
+
+  it('aligns both stress marks in a compound proper name', () => {
+    const input = 'Кам’янець-Подільський.';
+    const lexicon = Lexicon.loadTsv(new URL('../lexicon/names.tsv', import.meta.url).pathname);
+    const speech = prepareSpeech(input, { engine: 'tts-uk', dictionary: StressDictionary.empty(), lexicon });
+
+    expect(speech.text).toBe("Кам'ян+ець-Под+ільський.");
+    expect(speech.speechTextAlignment.map(({ engineText }) => engineText).join('')).toBe(speech.text);
+    expect(speech.speechTextAlignment[0]?.sourceStart).toBe(0);
+    expect(speech.speechTextAlignment.at(-1)?.sourceEnd).toBe(input.length);
+  });
+
+  it.each(['C++ is popular.', '2+2', 'Моло́ко.'])(
+    'aligns literal plus signs and existing acute marks in %s',
+    (input) => {
+      const speech = prepareSpeech(input, { engine: 'plain' });
+
+      expect(speech.text).toContain(input.includes('+') ? '+' : 'Молоко');
+      expect(speech.speechTextAlignment.map(({ engineText }) => engineText).join('')).toBe(speech.text);
+    },
+  );
+
+  it('keeps acute-after engine marks inside the stressed word range', () => {
+    const speech = prepareSpeech('Молоко.', {
+      engine: 'piper-medium',
+      dictionary: StressDictionary.empty(),
+      lexicon: {
+        lookup: (word: string) => word.toLocaleLowerCase('uk-UA') === 'молоко'
+          ? { position: 5, alternative: null, dual: false }
+          : null,
+      },
+    });
+    const milk = speech.speechTextAlignment.find(({ sourceText }) => sourceText.includes('Молоко'));
+
+    expect(speech.text).toBe('Молоко́.');
+    expect(milk?.engineText).toBe('Молоко́');
+  });
+
+  it('keeps plus-after engine marks inside the stressed word range', () => {
+    const speech = prepareSpeech('Молоко.', {
+      engine: 'styletts2',
+      dictionary: StressDictionary.empty(),
+      lexicon: {
+        lookup: (word: string) => word.toLocaleLowerCase('uk-UA') === 'молоко'
+          ? { position: 5, alternative: null, dual: false }
+          : null,
+      },
+    });
+    const milk = speech.speechTextAlignment.find(({ sourceText }) => sourceText.includes('Молоко'));
+    const punctuation = speech.speechTextAlignment.find(({ sourceText }) => sourceText === '.');
+
+    expect(speech.text).toBe('Молоко+.');
+    expect(milk?.engineText).toBe('Молоко+');
+    expect(punctuation?.engineText).toBe('.');
+  });
+
+  it('returns UTF-16 phrase ranges and adapter-sized chunks', () => {
+    const speech = prepareSpeech('Раз, два. Три.', {
+      engine: 'plain',
+      chunking: { maxChars: 8 },
+    });
+
+    expect(speech.plan.segments.map(({ start, end }) => [start, end])).toEqual([[0, 4], [5, 9], [10, 14]]);
+    expect(speech.chunks?.map(({ text }) => text).join(' ')).toBe('Раз, два. Три.');
+    expect(speech.chunks?.every(({ text, start, end, oversized }) =>
+      speech.text.slice(start, end) === text && (text.length <= 8 || oversized),
+    )).toBe(true);
   });
 
   it('keeps batch resolution metadata while returning a plan for each paragraph', async () => {
