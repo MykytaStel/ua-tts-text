@@ -18,6 +18,9 @@
 - [x] Код handoff `0.26.0` злитий у PR #11 і включений у наступний кандидат; окремої публікації `0.26.0` не було
 - [x] Тег `v0.30.0` і npm `gitHead` вказують на `05b976f`, коміт злиття виправлень із PR #14.
 - [x] Створено [GitHub Release](https://github.com/MykytaStel/ua-tts-text/releases/tag/v0.30.0). Перевірено встановлення `ua-tts-text@0.30.0` з npm у чистий проєкт.
+- [x] `0.35.0` — локальний кандидат пройшов `pnpm prepublishOnly` і `node scripts/eval.mjs --strict` (217 тестів, 15 script checks, 36/36 fixtures, packed-install smoke; regression set 28 речень).
+- [ ] Після публікації оновити `@cf/providers` і `@cf/film` у pnpm workspace та звірити тег, npm `gitHead`, integrity і встановлення з registry.
+- Незалежний holdout і сліпе аудіо не зібрані; реліз не заявляє покращення точності наголосів чи якості аудіо. Зібрати їх перед будь-якою такою заявою.
 
 ## Крок 1. GitHub (зроблено)
 

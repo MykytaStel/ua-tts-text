@@ -13,12 +13,15 @@ import {
   checkPrepared,
   applyNormalizationReview,
   createNormalizationReview,
+  applySpeechReview,
+  createSpeechReview,
   lint,
   normalize,
   normalizeWithAlignment,
   normalizeWithTrace,
   prepare,
   prepareMany,
+  prepareSpeechMany,
 } from '../dist/index.js';
 
 const REVIEW_FORMAT = 'ua-tts-text-review';
@@ -122,8 +125,11 @@ function positionalInput() {
     'apply-review',
     'normalization-review-out',
     'apply-normalization-review',
+    'speech-review-out',
+    'apply-speech-review',
     'max-prompt-chars',
     'resolution-failure',
+    'max-chars',
   ]);
   for (let index = 2; index < process.argv.length; index++) {
     const value = process.argv[index];
@@ -137,7 +143,12 @@ function positionalInput() {
 }
 
 const engine = arg('engine', 'plain');
-const asJson = process.argv.includes('--json');
+const planJson = process.argv.includes('--plan-json');
+const asJson = process.argv.includes('--json') || planJson;
+const maxCharsArg = arg('max-chars', '');
+const maxChars = maxCharsArg ? Number(maxCharsArg) : undefined;
+if (maxChars !== undefined && (!Number.isSafeInteger(maxChars) || maxChars < 1))
+  throw new Error('--max-chars requires a positive integer');
 const strictMode = process.argv.includes('--strict');
 const explainMode = process.argv.includes('--explain');
 const decisionsArg = arg('decisions', '');
@@ -146,6 +157,8 @@ const reviewOutArg = arg('review-out', '');
 const applyReviewArg = arg('apply-review', '');
 const normalizationReviewOutArg = arg('normalization-review-out', '');
 const applyNormalizationReviewArg = arg('apply-normalization-review', '');
+const speechReviewOutArg = arg('speech-review-out', '');
+const applySpeechReviewArg = arg('apply-speech-review', '');
 if (process.argv.includes('--review-out') && (!reviewOutArg || reviewOutArg.startsWith('--')))
   throw new Error('--review-out requires a file path');
 if (process.argv.includes('--apply-review') && (!applyReviewArg || applyReviewArg.startsWith('--')))
@@ -154,10 +167,14 @@ if (process.argv.includes('--normalization-review-out') && (!normalizationReview
   throw new Error('--normalization-review-out requires a file path');
 if (process.argv.includes('--apply-normalization-review') && (!applyNormalizationReviewArg || applyNormalizationReviewArg.startsWith('--')))
   throw new Error('--apply-normalization-review requires a file path');
+if (process.argv.includes('--speech-review-out') && (!speechReviewOutArg || speechReviewOutArg.startsWith('--')))
+  throw new Error('--speech-review-out requires a file path');
+if (process.argv.includes('--apply-speech-review') && (!applySpeechReviewArg || applySpeechReviewArg.startsWith('--')))
+  throw new Error('--apply-speech-review requires a file path');
 const normalizationArg = arg('normalization', '');
 if (process.argv.includes('--normalization') && (!normalizationArg || normalizationArg.startsWith('--')))
   throw new Error('--normalization requires a file path');
-const reviewActions = [reviewOutArg, applyReviewArg, normalizationReviewOutArg, applyNormalizationReviewArg].filter(Boolean);
+const reviewActions = [reviewOutArg, applyReviewArg, normalizationReviewOutArg, applyNormalizationReviewArg, speechReviewOutArg, applySpeechReviewArg].filter(Boolean);
 if (reviewActions.length > 1) throw new Error('choose only one review action');
 if (reviewActions.length > 0 && decisionsArg)
   throw new Error('--decisions cannot be combined with occurrence review; use choices in the review file');
@@ -213,6 +230,9 @@ let batch;
 let reviewSummary;
 let result;
 let appliedNormalizationCorrections;
+let appliedSpeechHandoff;
+let handoffOccurrenceDecisions;
+let handoffOccurrenceOverrides;
 if (normalizationReviewOutArg) {
   const artifact = createNormalizationReview(input.trim(), { rules: resources.normalization });
   const file = path.resolve(normalizationReviewOutArg);
@@ -239,6 +259,36 @@ if (normalizationReviewOutArg) {
     unresolvedOccurrences: applied.unresolved,
     fingerprint: applied.fingerprint,
   };
+} else if (speechReviewOutArg) {
+  const artifact = createSpeechReview(input.trim(), base);
+  const file = path.resolve(speechReviewOutArg);
+  writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`);
+  result = prepare(input.trim(), base);
+  reviewSummary = {
+    mode: 'speech-exported',
+    file,
+    normalizationOccurrences: artifact.normalization.occurrences.length,
+    speechOccurrences: artifact.occurrences.length,
+    fingerprint: artifact.fingerprint,
+  };
+} else if (applySpeechReviewArg) {
+  const review = JSON.parse(readFileSync(path.resolve(applySpeechReviewArg), 'utf8'));
+  const applied = applySpeechReview(input.trim(), review, {
+    ...base,
+    ...(maxChars !== undefined ? { chunking: { maxChars } } : {}),
+  });
+  appliedSpeechHandoff = applied.speech;
+  appliedNormalizationCorrections = applied.normalization.corrections;
+  result = applied.speech.prepared;
+  reviewSummary = {
+    mode: 'speech-applied',
+    file: path.resolve(applySpeechReviewArg),
+    appliedNormalization: applied.normalization.applied,
+    unresolvedNormalization: applied.normalization.unresolved,
+    appliedReadings: applied.appliedReadings,
+    unresolvedReadings: applied.unresolvedReadings,
+    fingerprint: applied.fingerprint,
+  };
 } else if (applyReviewArg) {
   const preview = await prepareMany([input.trim()], base);
   const reviewChoices = readReview(applyReviewArg, {
@@ -252,6 +302,8 @@ if (normalizationReviewOutArg) {
     ...reviewChoices,
     expectedDecisionFingerprint: preview.decisionFingerprint,
   });
+  handoffOccurrenceDecisions = reviewChoices.occurrenceDecisions;
+  handoffOccurrenceOverrides = reviewChoices.occurrenceOverrides;
   result = batch.results[0];
   reviewSummary = {
     mode: 'applied',
@@ -274,6 +326,8 @@ if (normalizationReviewOutArg) {
         }
       : base,
   );
+  handoffOccurrenceDecisions = batch.decisions;
+  handoffOccurrenceOverrides = batch.overrides;
   result = batch.results[0];
   if (reviewOutArg) {
     const artifact = {
@@ -306,6 +360,10 @@ if (reviewSummary?.mode === 'normalization-exported')
   console.error(`файл перегляду нормалізації: ${reviewSummary.file} · фрагментів: ${reviewSummary.occurrences}`);
 if (reviewSummary?.mode === 'normalization-applied')
   console.error(`застосовано виправлень нормалізації: ${reviewSummary.appliedCorrections} · лишилося на перевірку: ${reviewSummary.unresolvedOccurrences}`);
+if (reviewSummary?.mode === 'speech-exported')
+  console.error(`єдиний файл перегляду: ${reviewSummary.file} · нормалізація: ${reviewSummary.normalizationOccurrences} · вимова: ${reviewSummary.speechOccurrences}`);
+if (reviewSummary?.mode === 'speech-applied')
+  console.error(`застосовано виправлень: нормалізація ${reviewSummary.appliedNormalization}, вимова ${reviewSummary.appliedReadings} · лишилося: нормалізація ${reviewSummary.unresolvedNormalization}, вимова ${reviewSummary.unresolvedReadings}`);
 if (reviewSummary?.mode === 'applied')
   console.error(
     `застосовано рішень: омонімів ${reviewSummary.appliedHomographs}, невідомих слів ${reviewSummary.appliedUnknownWords} · лишилось нерозв'язаними: омонімів ${reviewSummary.unresolvedHomographs}, невідомих слів ${reviewSummary.unresolvedUnknownWords}`,
@@ -329,6 +387,16 @@ const normalizationTrace = traceResult
       steps: traceResult.steps,
     }
   : undefined;
+const speechHandoff = planJson
+  ? appliedSpeechHandoff ?? (await prepareSpeechMany([input.trim()], {
+      ...base,
+      ...(appliedNormalizationCorrections ? { normalizationCorrections: appliedNormalizationCorrections } : {}),
+      ...(handoffOccurrenceDecisions ? { occurrenceDecisions: handoffOccurrenceDecisions } : {}),
+      ...(handoffOccurrenceOverrides ? { occurrenceOverrides: handoffOccurrenceOverrides } : {}),
+      ...(batch ? { expectedDecisionFingerprint: batch.decisionFingerprint } : {}),
+      ...(maxChars !== undefined ? { chunking: { maxChars } } : {}),
+    })).paragraphs[0]
+  : undefined;
 
 if (asJson) {
   console.log(
@@ -345,6 +413,12 @@ if (asJson) {
               },
             }
           : {}),
+        ...(speechHandoff ? {
+          speechPlan: speechHandoff.plan,
+          speechTextAlignment: speechHandoff.speechTextAlignment,
+          readinessAlignment: speechHandoff.readinessAlignment,
+          ...(speechHandoff.chunks ? { chunks: speechHandoff.chunks } : {}),
+        } : {}),
         ...(strictGate ? { strictGate } : {}),
         ...(ask && batch ? { resolution: { decisions: batch.decisions, missing: batch.missing, warnings: batch.warnings, promptLength: batch.promptLength } } : {}),
         ...(reviewSummary ? { review: reviewSummary } : {}),

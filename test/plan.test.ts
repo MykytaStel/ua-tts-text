@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planSpeech, renderPlan } from '../src/plan.js';
+import { chunkSpeech, planSpeech, renderPlan } from '../src/plan.js';
 
 describe('план мовлення', () => {
   it('ділить на речення й підрядні частини', () => {
@@ -58,5 +58,40 @@ describe('план мовлення', () => {
     const plan = planSpeech('A & B < C.');
     expect(renderPlan(plan, 'ssml')).toContain('&amp;');
     expect(renderPlan(plan, 'ssml')).toContain('&lt;');
+  });
+
+  it('exposes source ranges for each planned phrase', () => {
+    const input = '  Раз, два. Три.';
+    const plan = planSpeech(input);
+
+    expect(plan.segments.map(({ text, start, end }) => [text, input.slice(start, end)])).toEqual([
+      ['Раз,', 'Раз,'],
+      ['два.', 'два.'],
+      ['Три.', 'Три.'],
+    ]);
+  });
+
+  it('splits at preferred boundaries and reports an indivisible range over budget', () => {
+    const text = 'Коротко. Значно довше речення.';
+    const chunks = chunkSpeech(text, { maxChars: 12, protectedRanges: [{ start: 9, end: text.length, reason: 'semantic value' }] });
+
+    expect(chunks.map(({ text: value }) => value)).toEqual(['Коротко.', 'Значно довше речення.']);
+    expect(chunks[1]).toMatchObject({ oversized: true, warning: 'semantic value' });
+    expect(chunks[1]!.text.length).toBeGreaterThan(12);
+  });
+
+  it('uses grapheme-safe fallback for long unbroken text', () => {
+    const text = 'А😀БВГД';
+    const chunks = chunkSpeech(text, { maxChars: 3 });
+    expect(chunks.map(({ text: value }) => value).join('')).toBe(text);
+    expect(chunks.every(({ text: value }) => value.length <= 3 || [...value].length === 1)).toBe(true);
+  });
+
+  it('keeps plus stress marks attached to their vowels during fallback chunking', () => {
+    const text = 'АБВ+ОГД';
+    const chunks = chunkSpeech(text, { maxChars: 4 });
+
+    expect(chunks.map(({ text: value }) => value).join('')).toBe(text);
+    expect(chunks.every(({ text: value }) => !value.endsWith('+'))).toBe(true);
   });
 });

@@ -15,7 +15,7 @@
 | Блок | Стан |
 |---|---|
 | `normalize()` — числа, діапазони, роки, дати, відсотки, одиниці, валюта, скорочення, пунктуація | ✅ модульні кейси + 13 точних fixtures |
-| `scanSemanticSpans()` — типізовані позиції дат, часу, дробів, кодів і одиниць | 🧪 початковий розбір; неоднозначності треба перевіряти |
+| `scanSemanticSpans()` — типізовані позиції та обмежені кандидати прочитання | ✅ неоднозначні дати через `/`, короткий час, дроби й коди з нулями; невідомі формати лишаються на review |
 | `stress()` — наголоси бінарним словником (2,84 млн словоформ) | ✅ |
 | `render()` — профілі рушіїв | ✅ |
 | `homographs()` / `decisions` — омоніми з двома варіантами і вибір людини/LLM | ✅ |
@@ -37,6 +37,10 @@
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
 | Реліз | npm `latest` — `0.30.0` (перевірено 2026-11-22). [GitHub Release](https://github.com/MykytaStel/ua-tts-text/releases/tag/v0.30.0) |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
+| Вирівнювання до тексту рушія після наголосів | ✅ `speechTextAlignment` і `readinessAlignment` у `0.35.0` |
+| UTF-16 межі фраз і довгі запити для адаптера | ✅ `planSpeech()` / `chunkSpeech()` у `0.35.0`; oversized фрагмент позначається |
+| Один review для нормалізації та вимови | ✅ `createSpeechReview()` / `applySpeechReview()` і CLI у `0.35.0` |
+| Статус 0.35.0 | кандидат у вихідному коді; npm ще `latest` — `0.30.0` |
 
 ## Встановлення
 
@@ -172,22 +176,30 @@ renderPlan(plan, 'ssml'); // <speak>Раз,<break time="220ms"/> два.<break t
 `plain` або без явно вибраного рушія. Для конкретного рушія
 `ssmlUnavailableReason` пояснює, як використати план. Наприклад, Azure потребує
 власної розмітки з мовою та голосом, а ElevenLabs v4 приймає текст із пунктуацією.
-`normalizationAlignment` зіставляє фрагменти до вставлення маркерів наголосу
-з UTF-16 позиціями оригіналу. Для рушіїв без текстових наголосів
+`normalizationAlignment` зберігає попередній контракт: зіставляє фрагменти до
+вставлення маркерів наголосу. `speechTextAlignment` додає діапазони в реальному
+тексті рушія після наголосів; `readinessAlignment` зв'язує точкові findings із
+джерелом і фінальним текстом. Усі позиції — UTF-16. Для рушіїв без текстових наголосів
 `readiness` оцінює текст і неоднозначні числа без перевірки словника наголосів.
 
 ```ts
 const handoff = await prepareSpeechMany(paragraphs, { engine: 'holos-voice', resources, ask });
-const voiceInputs = handoff.paragraphs.map(({ text, plan, readiness, prepared, normalizationAlignment }) => ({
+const voiceInputs = handoff.paragraphs.map(({ text, plan, readiness, prepared, speechTextAlignment, readinessAlignment }) => ({
   text, // однаковий engine-ready текст для кожного голосу
-  segments: plan.segments, // межі фраз і pauseAfterMs для адаптера
-  sourceMap: normalizationAlignment,
+  segments: plan.segments, // UTF-16 start/end, межі фраз і pauseAfterMs
+  sourceMap: speechTextAlignment, // оригінал → engine-ready текст після наголосів
+  findingMap: readinessAlignment,
   review: readiness.findings, // перевірити перед синтезом
   unknownOccurrences: prepared.unknownOccurrences, // позиції до маркерів наголосу
   ambiguousOccurrences: prepared.ambiguousOccurrences, // не вгадувати мовчки
 }));
 // Адаптуйте wordsPerMinute окремо для кожного голосу після вимірювання аудіо.
 ```
+
+Для ліміту провайдера задайте `chunking: { maxChars }` у `prepareSpeech()` або
+`prepareSpeechMany()`. `chunks` містить межі в повному фінальному тексті, план
+кожного фрагмента й попередження, якщо нерозривне семантичне значення перевищило
+бюджет. `maxChars` рахує UTF-16 code units, а не токени провайдера.
 
 План не передбачає, що всі голоси мають однаковий темп чи однаково підтримують
 SSML. Сам по собі він не доводить природність аудіо: її перевіряють на відкладених
@@ -286,9 +298,17 @@ npx skills add MykytaStel/ua-tts-text
 
 ## Інтеграція у Content Factory
 
-Content Factory споживає пакет як npm-залежність. Після публікації нової версії
-оновлюються версія залежності й lockfile у Studio; runtime-підготовка користується
-спільним API пакета та відбитком ресурсів для ідентичності кешу синтезу.
+Content Factory споживає пакет як npm-залежність у pnpm workspace. Після
+публікації нової версії онови обидва пакети-споживачі з кореня Studio:
+
+```bash
+pnpm --filter @cf/providers --filter @cf/film update ua-tts-text@0.35.0 --save-exact
+pnpm install --frozen-lockfile
+```
+
+Не запускай `npm install` у корені workspace: `workspace:*` — протокол pnpm.
+Runtime-підготовка користується спільним API пакета та відбитком ресурсів для
+ідентичності кешу синтезу.
 
 Словник і лексикон для рантайму лежать у `~/.local/share/ua-tts-text/` (шляхи перекриваються
 `UA_TTS_DICT`, `UA_TTS_LEXICON` і `UA_TTS_HOME`). Пакет можна використовувати окремо
@@ -305,6 +325,9 @@ node scripts/cli.mjs --engine piper-medium --normalization project/normalization
 node scripts/cli.mjs --engine tts-uk --strict --json < script.txt
 node scripts/cli.mjs --normalization-review-out review-normalization.json < script.txt
 node scripts/cli.mjs --apply-normalization-review review-normalization.json < script.txt
+node scripts/cli.mjs --speech-review-out speech-review.json < script.txt
+node scripts/cli.mjs --apply-speech-review speech-review.json < script.txt
+node scripts/cli.mjs --engine holos-voice --plan-json --max-chars 12000 < script.txt
 ```
 
 `--normalization <path>` явно вибирає TSV із проєктними правилами й перекриває
@@ -351,9 +374,11 @@ const spans = scanSemanticSpans('О 12:30 додай 1/2 склянки; код 
 ```
 
 Початкові прочитання: `12:30` як час, `2:1` як співвідношення, `1/2 склянки` як
-`пів склянки`, `2026-11-15` як дата. Недійсні ISO-дати, час і непідтримані дроби
-не переписуються автоматично та з'являються в `semanticFindings`. Часові зони й
-інші формати поки потребують окремих правил.
+`пів склянки`, `2026-11-15` як дата. `01/02/2026` повертає кандидати день/місяць
+і місяць/день; коротке `12:3` — кандидати час/співвідношення. Вибір кандидата
+потребує review. Недійсні дати, час і непідтримані дроби не переписуються
+автоматично та з'являються в `semanticFindings`. Часові зони й інші формати
+поки потребують окремих правил.
 
 Дробова сума у гривнях читається через гривні й копійки: `1,25 грн` → «одна
 гривня двадцять п'ять копійок», `1,5 ₴` → «одна гривня п'ятдесят копійок».
@@ -436,6 +461,33 @@ const prepared = prepare(input, { resources, normalizationCorrections: correctio
   ]
 }
 ```
+
+### Єдиний review підготовки мовлення (0.35.0)
+
+`createSpeechReview()` збирає в один версійований JSON неоднозначні числа/дати,
+омоніми та невідомі багатоскладові слова. У кожному записі є контекст і позиції
+в джерелі та фінальному тексті рушія. Для числового кандидата запиши його
+`candidateId`; власне редакторське прочитання задається через `replacement`.
+Для омоніма вибери `choice` `0` або `1`; для невідомого слова — `stressPosition`.
+`null` залишає питання відкритим.
+
+```bash
+ua-tts-text --speech-review-out speech-review.json < script.txt
+# Відредагуй JSON, потім застосуй ті самі рішення:
+ua-tts-text --apply-speech-review speech-review.json < script.txt > prepared.txt
+```
+
+```ts
+const review = createSpeechReview(input, { resources, engine: 'holos-voice' });
+const applied = applySpeechReview(input, editedReview, { resources, engine: 'holos-voice' });
+const { text, speechTextAlignment, readiness } = applied.speech;
+```
+
+Fingerprint охоплює точний текст, параметри нормалізації, рушій і fingerprint
+ресурсів. Застарілий, неповний або змінений запис відхиляється. Якщо обране
+числове прочитання створило нові невідомі слова, пакет не схвалює їх автоматично:
+вони лишаються у readiness для наступного review. API не доводить правильність
+вимови й не замінює прослуховування.
 
 ### Ручний перегляд омонімів і невідомих слів (CLI у 0.15.0)
 

@@ -236,9 +236,17 @@ try {
   review.occurrences[1].choice = 1;
   review.occurrences[3].stressPosition = 9;
   writeFileSync(reviewFile, `${JSON.stringify(review, null, 2)}\n`);
-  const applied = runReviewCli(['--apply-review', reviewFile], reviewInput);
-  if (applied.status !== 0 || applied.stdout.trim() !== 'З+амок. Зам+ок. Кр+аудфандинг. Краудфанд+инг.')
-    throw new Error(applied.stderr || `CLI review apply returned unexpected text: ${applied.stdout}`);
+  const applied = runReviewCli(['--apply-review', reviewFile, '--plan-json', '--max-chars', '20'], reviewInput);
+  const appliedResult = JSON.parse(applied.stdout);
+  if (
+    applied.status !== 0 ||
+    appliedResult.text !== 'З+амок. Зам+ок. Кр+аудфандинг. Краудфанд+инг.' ||
+    appliedResult.speechPlan?.segments?.map(({ text }) => text).join(' ') !== appliedResult.text ||
+    appliedResult.speechTextAlignment?.map(({ engineText }) => engineText).join('') !== appliedResult.text ||
+    !Array.isArray(appliedResult.chunks) ||
+    appliedResult.chunks?.some(({ text, start, end }) => appliedResult.text.slice(start, end) !== text)
+  )
+    throw new Error(`CLI review plan did not match applied choices: status=${applied.status} stderr=${applied.stderr} stdout=${applied.stdout}`);
   const staleText = runReviewCli(['--apply-review', reviewFile], 'Замок. Інший текст.');
   if (staleText.status === 0 || !staleText.stderr.includes('different text or resources'))
     throw new Error(`CLI accepted a review file for changed text: ${staleText.stdout}${staleText.stderr}`);
@@ -256,6 +264,46 @@ try {
   const invalidChoice = runReviewCli(['--apply-review', reviewFile], reviewInput);
   if (invalidChoice.status === 0 || !invalidChoice.stderr.includes('must be 0, 1, or null'))
     throw new Error(`CLI accepted an invalid review choice: ${invalidChoice.stdout}${invalidChoice.stderr}`);
+
+  const speechReviewFile = path.join(temp, 'speech-review.json');
+  const speechReviewInput = 'Замок.';
+  const speechExport = runReviewCli(['--speech-review-out', speechReviewFile], speechReviewInput);
+  if (speechExport.status !== 0) throw new Error(speechExport.stderr || 'unified speech review export failed');
+  const speechReview = JSON.parse(readFileSync(speechReviewFile, 'utf8'));
+  if (
+    speechReview.format !== 'ua-tts-text-speech-review' ||
+    speechReview.version !== 1 ||
+    speechReview.occurrences.length !== 1 ||
+    speechReview.occurrences[0].kind !== 'homograph' ||
+    speechReview.occurrences[0].choice !== null
+  )
+    throw new Error(`unified review export returned unexpected data: ${JSON.stringify(speechReview)}`);
+  speechReview.occurrences[0].choice = 1;
+  writeFileSync(speechReviewFile, `${JSON.stringify(speechReview, null, 2)}\n`);
+  const speechApplied = runReviewCli(['--apply-speech-review', speechReviewFile, '--plan-json', '--max-chars', '3'], speechReviewInput);
+  const speechAppliedResult = JSON.parse(speechApplied.stdout);
+  if (
+    speechApplied.status !== 0 ||
+    speechAppliedResult.text !== 'Зам+ок.' ||
+    speechAppliedResult.speechPlan?.segments?.map(({ text }) => text).join(' ') !== speechAppliedResult.text ||
+    speechAppliedResult.speechTextAlignment?.map(({ engineText }) => engineText).join('') !== speechAppliedResult.text ||
+    !Array.isArray(speechAppliedResult.chunks) ||
+    speechAppliedResult.chunks?.some(({ text, start, end }) => speechAppliedResult.text.slice(start, end) !== text)
+  )
+    throw new Error(speechApplied.stderr || `unified review plan did not match applied choices: ${speechApplied.stdout}`);
+  const staleSpeechReview = runReviewCli(['--apply-speech-review', speechReviewFile], 'Інший текст.');
+  if (staleSpeechReview.status === 0 || !staleSpeechReview.stderr.includes('stale'))
+    throw new Error(`CLI accepted a unified review for changed text: ${staleSpeechReview.stdout}${staleSpeechReview.stderr}`);
+
+  const planJson = runReviewCli(['--plan-json', '--max-chars', '10'], 'Перше речення. Друге.');
+  const planJsonResult = JSON.parse(planJson.stdout);
+  if (
+    planJson.status !== 0 ||
+    planJsonResult.speechPlan?.segments?.length !== 2 ||
+    !Array.isArray(planJsonResult.speechTextAlignment) ||
+    !Array.isArray(planJsonResult.chunks)
+  )
+    throw new Error(planJson.stderr || `CLI plan JSON returned unexpected data: ${planJson.stdout}`);
 
   const normalizationReviewFile = path.join(temp, 'normalization-review.json');
   const normalizationReviewInput = 'Дата 31.02.2026, час 25:99.';

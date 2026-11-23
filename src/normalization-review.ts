@@ -21,6 +21,9 @@ export interface NormalizationReviewOccurrence {
   readonly reason: string;
   readonly context: string;
   readonly value?: SemanticSpan['value'];
+  readonly candidates?: SemanticSpan['candidates'];
+  /** Stable candidate ID from the current parser, or null while undecided. */
+  readonly candidateId?: string | null;
   readonly replacement: string | null;
 }
 
@@ -102,6 +105,7 @@ function currentOccurrences(
         reason: span.reason ?? 'Фрагмент потребує ручного прочитання.',
         context: sentenceAt(input, span.start),
         ...(span.value ? { value: span.value } : {}),
+        ...(span.candidates ? { candidates: span.candidates } : {}),
       });
     });
 }
@@ -122,6 +126,7 @@ export function createNormalizationReview(input: string, options: NormalizeOptio
     fingerprint: preview.fingerprint,
     occurrences: Object.freeze(occurrences.map((occurrence) => Object.freeze({
       ...occurrence,
+      ...(occurrence.candidates ? { candidateId: null } : {}),
       replacement: null,
     }))),
   });
@@ -168,16 +173,27 @@ export function applyNormalizationReview(
         item.normalizedText !== expected.normalizedText || item.reason !== expected.reason ||
         item.context !== expected.context || !sameValue(item.value, expected.value))
       throw new Error(`normalization review: occurrence ${item.id} no longer matches the input; export a new review file`);
-    if (item.replacement === null) continue;
-    if (typeof item.replacement !== 'string' || item.replacement.length === 0 || item.replacement !== item.replacement.trim())
+    if (Object.hasOwn(item, 'candidates') && !sameValue(item.candidates, expected.candidates))
+      throw new Error(`normalization review: candidates for ${item.id} no longer match the input; export a new review file`);
+    let candidate: NonNullable<SemanticSpan['candidates']>[number] | undefined;
+    if (item.candidateId !== undefined && item.candidateId !== null) {
+      if (typeof item.candidateId !== 'string' || !expected.candidates?.some(({ id }) => id === item.candidateId))
+        throw new Error(`normalization review: candidate for ${item.id} is not available; export a new review file`);
+      candidate = expected.candidates.find(({ id }) => id === item.candidateId);
+      if (item.replacement !== null)
+        throw new Error(`normalization review: choose either candidateId or replacement for ${item.id}`);
+    }
+    const replacement = candidate?.spoken ?? item.replacement;
+    if (replacement === null) continue;
+    if (typeof replacement !== 'string' || replacement.length === 0 || replacement !== replacement.trim())
       throw new Error(`normalization review: replacement for ${item.id} must be null or a trimmed phrase`);
     drafts.push({
       sourceStart: expected.sourceStart,
       sourceEnd: expected.sourceEnd,
       spokenStart: expected.spokenStart,
       spokenEnd: expected.spokenEnd,
-      replacement: item.replacement,
-      source: 'normalization review',
+      replacement,
+      source: candidate ? `normalization candidate:${candidate.id}` : 'normalization review',
     });
   }
   if (seen.size !== currentById.size)
