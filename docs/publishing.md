@@ -13,13 +13,15 @@
 - [x] GitHub: https://github.com/MykytaStel/ua-tts-text (публічний, топіки додано)
 - [x] CI: тести зі словником і без нього
 - [x] skills.sh: https://www.skills.sh/mykytastel/ua-tts-text/ua-voiceover-prep (проіндексовано автоматично)
-- [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.30.0`, перевірено 2026-11-22)
+- [x] npm: https://www.npmjs.com/package/ua-tts-text (`latest` — `0.35.0`, перевірено 2026-11-23)
 - [x] Вихідний код `0.25.0` злитий у `main` у PR #10
 - [x] Код handoff `0.26.0` злитий у PR #11 і включений у наступний кандидат; окремої публікації `0.26.0` не було
 - [x] Тег `v0.30.0` і npm `gitHead` вказують на `05b976f`, коміт злиття виправлень із PR #14.
 - [x] Створено [GitHub Release](https://github.com/MykytaStel/ua-tts-text/releases/tag/v0.30.0). Перевірено встановлення `ua-tts-text@0.30.0` з npm у чистий проєкт.
-- [x] `0.35.0` — локальний кандидат пройшов `pnpm prepublishOnly` і `node scripts/eval.mjs --strict` (217 тестів, 15 script checks, 36/36 fixtures, packed-install smoke; regression set 28 речень).
-- [ ] Після публікації оновити `@cf/providers` і `@cf/film` у pnpm workspace та звірити тег, npm `gitHead`, integrity і встановлення з registry.
+- [x] `0.35.0` опубліковано: [GitHub Release](https://github.com/MykytaStel/ua-tts-text/releases/tag/v0.35.0); npm `latest` — `0.35.0`. Тег і npm `gitHead` вказують на `489320b4eac2c6cde338caadaaaba77225e953e4`.
+- [x] Release gate `0.35.0`: `pnpm prepublishOnly`, `node scripts/eval.mjs --strict`, 217 тестів, 15 script checks, 36/36 fixtures і packed-install smoke пройшли; CI — 4/4 jobs.
+- [x] npm integrity звірено: `sha512-puvX7tb0mJuLQGXmIOGVRwcA2/ppcIj4lThrirNIWqGB1FrOaxjnSxI+9mip4RrDP0QlkCf2djK4kPF84ts5hA==`; чисте встановлення `ua-tts-text@0.35.0` з registry та імпорт API пройшли.
+- [x] У pnpm workspace `@cf/providers` і `@cf/film` оновлено до `0.35.0`; `pnpm install --frozen-lockfile` і `pnpm why ua-tts-text` підтвердили один розв'язаний `0.35.0`.
 - Незалежний holdout і сліпе аудіо не зібрані; реліз не заявляє покращення точності наголосів чи якості аудіо. Зібрати їх перед будь-якою такою заявою.
 
 ## Крок 1. GitHub (зроблено)
