@@ -35,12 +35,11 @@
 | Позиції невідомих слів і зіставлення нормалізованого тексту з джерелом | ✅ `unknownOccurrences` / `normalizationAlignment` у `0.30.0` |
 | PLS-словник із явними IPA-вимовами для ElevenLabs v4 | ✅ `createIpaPls()` у `0.30.0`; IPA не генерується автоматично |
 | CLI для проєктних правил і trace | ✅ `--normalization`, `--explain`; позиції змін у джерелі у `0.21.0` |
-| Реліз | npm `latest` — `0.30.0` (перевірено 2026-11-22). [GitHub Release](https://github.com/MykytaStel/ua-tts-text/releases/tag/v0.30.0) |
+| Реліз | [npm](https://www.npmjs.com/package/ua-tts-text) · [GitHub Releases](https://github.com/MykytaStel/ua-tts-text/releases) |
 | Перегляд омонімів і невідомих слів у CLI | ✅ ручний вибір для кожного входження з перевіркою fingerprint |
 | Вирівнювання до тексту рушія після наголосів | ✅ `speechTextAlignment` і `readinessAlignment` у `0.35.0` |
 | UTF-16 межі фраз і довгі запити для адаптера | ✅ `planSpeech()` / `chunkSpeech()` у `0.35.0`; oversized фрагмент позначається |
 | Один review для нормалізації та вимови | ✅ `createSpeechReview()` / `applySpeechReview()` і CLI у `0.35.0` |
-| Статус 0.35.0 | кандидат у вихідному коді; npm ще `latest` — `0.30.0` |
 
 ## Встановлення
 
